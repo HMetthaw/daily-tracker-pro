@@ -1,0 +1,19 @@
+{
+  "name": "Daily Tracker Pro",
+  "short_name": "Daily Tracker",
+  "description": "Simple daily activity tracker with weekly recaps.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

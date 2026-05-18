@@ -1,0 +1,138 @@
+export const translations = {
+  cs: {
+    appName: "Daily Tracker Pro",
+    today: "Dnes",
+    week: "Týden",
+    tasks: "Úkoly",
+    recap: "Recap",
+    settings: "Nastavení",
+    addTask: "Přidat úkol",
+    taskName: "Název úkolu",
+    reminder: "Připomínka",
+    noReminder: "Bez času",
+    recurring: "Opakovaný",
+    oneTime: "Jednorázový",
+    save: "Uložit",
+    cancel: "Zrušit",
+    delete: "Smazat",
+    done: "Hotovo",
+    pending: "Čeká",
+    progress: "Progres",
+    dailyProgress: "Denní progres",
+    streak: "Streak",
+    days: "dní",
+    completedOf: "{completed} z {total}",
+    todayEmpty: "Na dnešek zatím nic nemáš.",
+    tasksEmpty: "Přidej první opakovaný nebo jednorázový úkol.",
+    language: "Jazyk",
+    appearance: "Vzhled",
+    light: "Světlý",
+    dark: "Tmavý",
+    czech: "Čeština",
+    english: "English",
+    localOnly: "Data jsou uložená jen v telefonu.",
+    sunday: "Ne",
+    monday: "Po",
+    tuesday: "Út",
+    wednesday: "St",
+    thursday: "Čt",
+    friday: "Pá",
+    saturday: "So",
+    bestTasks: "Nejlepší úkoly",
+    worstTasks: "Nejslabší úkoly",
+    bestDay: "Nejlepší den",
+    worstDay: "Nejslabší den",
+    recommendation: "Doporučení",
+    noRecap: "Recap se objeví, až bude v týdnu co vyhodnotit.",
+    noTasks: "Naplánuj si pár úkolů na další týden.",
+    excellent: "Skvělý týden. Drž stejný rytmus.",
+    focusWeakTask: "Zkus zjednodušit nejslabší úkol nebo mu dát pevný čas.",
+    steady: "Jdeš dobře. Zaměř se na jeden úkol, který nejčastěji uniká.",
+    notificationTaskTitle: "Čas na úkol",
+    notificationTaskBody: "{title}",
+    notificationRecapTitle: "Týdenní recap",
+    notificationRecapBody: "Podívej se, jak dopadl tvůj týden.",
+    permissionDenied: "Notifikace nejsou povolené v nastavení telefonu.",
+    timePlaceholder: "HH:MM",
+    addOneTimeToday: "Jednorázový na dnes"
+  },
+  en: {
+    appName: "Daily Tracker Pro",
+    today: "Today",
+    week: "Week",
+    tasks: "Tasks",
+    recap: "Recap",
+    settings: "Settings",
+    addTask: "Add task",
+    taskName: "Task name",
+    reminder: "Reminder",
+    noReminder: "No time",
+    recurring: "Recurring",
+    oneTime: "One-time",
+    save: "Save",
+    cancel: "Cancel",
+    delete: "Delete",
+    done: "Done",
+    pending: "Pending",
+    progress: "Progress",
+    dailyProgress: "Daily progress",
+    streak: "Streak",
+    days: "days",
+    completedOf: "{completed} of {total}",
+    todayEmpty: "Nothing planned for today yet.",
+    tasksEmpty: "Add your first recurring or one-time task.",
+    language: "Language",
+    appearance: "Appearance",
+    light: "Light",
+    dark: "Dark",
+    czech: "Čeština",
+    english: "English",
+    localOnly: "Data is stored only on this phone.",
+    sunday: "Sun",
+    monday: "Mon",
+    tuesday: "Tue",
+    wednesday: "Wed",
+    thursday: "Thu",
+    friday: "Fri",
+    saturday: "Sat",
+    bestTasks: "Best tasks",
+    worstTasks: "Weakest tasks",
+    bestDay: "Best day",
+    worstDay: "Weakest day",
+    recommendation: "Recommendation",
+    noRecap: "The recap appears when there is something to evaluate.",
+    noTasks: "Plan a few tasks for next week.",
+    excellent: "Great week. Keep the same rhythm.",
+    focusWeakTask: "Try simplifying the weakest task or giving it a fixed time.",
+    steady: "You are moving well. Focus on the one task that slips most often.",
+    notificationTaskTitle: "Task time",
+    notificationTaskBody: "{title}",
+    notificationRecapTitle: "Weekly recap",
+    notificationRecapBody: "Check how your week went.",
+    permissionDenied: "Notifications are not allowed in phone settings.",
+    timePlaceholder: "HH:MM",
+    addOneTimeToday: "One-time for today"
+  }
+};
+
+export const languageNames = {
+  cs: "Čeština",
+  en: "English"
+};
+
+export function t(language, key, params = {}) {
+  const template = translations[language]?.[key] || translations.cs[key] || key;
+  return Object.entries(params).reduce(
+    (value, [param, replacement]) => value.replaceAll(`{${param}}`, String(replacement)),
+    template
+  );
+}
+
+export function assertTranslationParity() {
+  const [baseLanguage, ...otherLanguages] = Object.keys(translations);
+  const baseKeys = Object.keys(translations[baseLanguage]).sort();
+  return otherLanguages.every((language) => {
+    const keys = Object.keys(translations[language]).sort();
+    return JSON.stringify(keys) === JSON.stringify(baseKeys);
+  });
+}

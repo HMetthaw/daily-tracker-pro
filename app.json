@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Daily Tracker Pro",
+    "slug": "daily-tracker-pro",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "dailytrackerpro",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.matejholes.dailytrackerpro",
+      "infoPlist": {
+        "NSUserNotificationUsageDescription": "Daily Tracker Pro sends local reminders for tasks you schedule.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.matejholes.dailytrackerpro"
+    },
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": false
+        }
+      ]
+    ],
+    "extra": {
+      "privacy": "Task data, completion history, streaks, and language preference are stored locally on the device. No account, analytics, or cloud sync is used in this version."
+    }
+  }
+}
