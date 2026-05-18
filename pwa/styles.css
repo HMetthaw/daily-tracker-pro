@@ -223,6 +223,30 @@ button {
   gap: 10px;
 }
 
+.day-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.day-card-head strong,
+.day-card-head span {
+  display: block;
+}
+
+.day-add {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--primary-text);
+  background: var(--primary);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -513,6 +537,17 @@ button {
 
 .select-input {
   appearance: none;
+}
+
+.date-row {
+  display: grid;
+  gap: 5px;
+}
+
+.date-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .time-range {

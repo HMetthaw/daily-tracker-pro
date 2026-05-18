@@ -53,6 +53,8 @@ const translations = {
     focusWeakTask: "Zkus zjednodušit nejslabší úkol nebo mu dát pevný čas.",
     steady: "Jdeš dobře. Zaměř se na jeden úkol, který nejčastěji uniká.",
     addOneTimeToday: "Jednorázový na dnes",
+    taskDate: "Datum úkolu",
+    addForDay: "Přidat na den",
     installHint: "Přidat na plochu",
     pwaLimit: "PWA notifikace jsou demo režim; pro přesné budíky je lepší pozdější iOS build.",
     taskTime: "Čas na úkol",
@@ -125,6 +127,8 @@ const translations = {
     focusWeakTask: "Try simplifying the weakest task or giving it a fixed time.",
     steady: "You are moving well. Focus on the one task that slips most often.",
     addOneTimeToday: "One-time for today",
+    taskDate: "Task date",
+    addForDay: "Add for day",
     installHint: "Add to Home Screen",
     pwaLimit: "PWA notifications are demo mode; a later iOS build is better for exact alarms.",
     taskTime: "Task time",
@@ -247,9 +251,12 @@ function renderWeek() {
       const stats = completionStats(items);
       return `
         <article class="card day-card">
-          <div class="row between">
-            <strong>${t(dayLabelKeys(weekdayKey(date)))} ${formatShortDate(date)}</strong>
-            <span class="muted">${t("completedOf", { completed: stats.completed, total: stats.total })}</span>
+          <div class="day-card-head">
+            <div>
+              <strong>${t(dayLabelKeys(weekdayKey(date)))} ${formatShortDate(date)}</strong>
+              <span class="muted">${t("completedOf", { completed: stats.completed, total: stats.total })}</span>
+            </div>
+            <button class="day-add" data-add-onetime-date="${date}" aria-label="${t("addForDay")}">+</button>
           </div>
           ${renderMeter(stats.percent)}
           ${items.map(renderOccurrence).join("")}
@@ -554,6 +561,9 @@ function bindEvents() {
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
+  document.querySelectorAll("[data-add-onetime-date]").forEach((button) => {
+    button.addEventListener("click", () => openTaskModal("oneTime", null, button.dataset.addOnetimeDate));
+  });
   document.querySelector("[data-action='new-project']")?.addEventListener("click", openProjectModal);
   document.querySelector("[data-action='new-plan-step']")?.addEventListener("click", () => openPlanStepModal(todayISO()));
   document.querySelector("[data-action='prev-month']")?.addEventListener("click", () => {
@@ -719,7 +729,7 @@ function savePlanStepFromForm(form, taskId = null) {
   render();
 }
 
-function openTaskModal(type = "recurring", taskId = null) {
+function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO()) {
   editingTaskId = taskId;
   const task =
     state.tasks.find((item) => item.id === taskId) ||
@@ -729,7 +739,7 @@ function openTaskModal(type = "recurring", taskId = null) {
       type,
       daysOfWeek: [...WEEKDAYS],
       reminderTime: "",
-      date: todayISO(),
+      date: defaultDate,
       active: true
     };
   const selectedDays = new Set(task.daysOfWeek || []);
@@ -745,7 +755,11 @@ function openTaskModal(type = "recurring", taskId = null) {
           <button type="button" class="${task.type === "oneTime" ? "active" : ""}" data-type="oneTime">${t("oneTime")}</button>
         </div>
         <input type="hidden" name="type" value="${task.type}" />
-        <div class="days-row">
+        <label class="date-row ${task.type === "oneTime" ? "" : "hidden"}">
+          <span>${t("taskDate")}</span>
+          <input name="date" type="date" value="${task.date || defaultDate}" />
+        </label>
+        <div class="days-row ${task.type === "oneTime" ? "hidden" : ""}">
           ${WEEKDAYS.map(
             (day) => `
               <button type="button" class="${selectedDays.has(day) ? "active" : ""}" data-day="${day}">
@@ -792,6 +806,7 @@ function openTaskModal(type = "recurring", taskId = null) {
       form.elements.type.value = button.dataset.type;
       form.querySelectorAll("[data-type]").forEach((item) => item.classList.toggle("active", item === button));
       form.querySelector(".days-row").classList.toggle("hidden", button.dataset.type === "oneTime");
+      form.querySelector(".date-row").classList.toggle("hidden", button.dataset.type !== "oneTime");
     });
   });
   form.querySelectorAll("[data-day]").forEach((button) => {
@@ -850,7 +865,7 @@ function saveTaskFromForm(form) {
     type: form.elements.type.value,
     daysOfWeek: form.elements.type.value === "recurring" ? form.elements.days.value.split(",").filter(Boolean) : [],
     reminderTime: form.elements.hasReminder.value === "1" ? `${form.elements.hour.value}:${form.elements.minute.value}` : "",
-    date: form.elements.type.value === "oneTime" ? todayISO() : "",
+    date: form.elements.type.value === "oneTime" ? form.elements.date.value || todayISO() : "",
     active: true,
     createdAt: existing?.createdAt || new Date().toISOString()
   };
