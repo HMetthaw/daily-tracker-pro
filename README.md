@@ -2,6 +2,8 @@
 
 Simple iPhone-first daily activity tracker built with Expo React Native.
 
+Daily Tracker Pro is being developed as a real product: a local-first daily tracker with recurring tasks, future one-time tasks, weekly recaps, and lightweight project planning. The current public demo runs as a PWA; the long-term target is a native iOS App Store release.
+
 ## What it does
 
 - Czech UI by default, English available in Settings.
@@ -43,6 +45,14 @@ The tests cover week boundaries, recurring task generation, 80% streak logic, we
 The project includes `eas.json`, iOS bundle identifier placeholder, and app metadata that can be used with EAS Build. For TestFlight/App Store release you will still need an Apple Developer account and production assets such as app icon, screenshots, privacy answers, and final bundle identifier ownership.
 
 Privacy note for release: all task data and settings are stored locally on-device in this version.
+
+## Product project docs
+
+- [Product brief](docs/PRODUCT.md)
+- [Roadmap](docs/ROADMAP.md)
+- [App Store plan](docs/APP_STORE_PLAN.md)
+- [Monetization strategy](docs/MONETIZATION.md)
+- [Product decisions](docs/DECISIONS.md)
 
 ## PWA demo version
 
