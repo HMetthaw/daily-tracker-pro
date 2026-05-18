@@ -64,6 +64,10 @@ const translations = {
     addProject: "Přidat projekt",
     projectName: "Název projektu",
     projectAddress: "Adresa / místo",
+    projectStart: "Začátek projektu",
+    projectEnd: "Konec projektu",
+    projectRange: "Rozsah projektu",
+    projectProgress: "{completed} z {total} kroků hotovo",
     projectStep: "Krok projektu",
     addProjectStep: "Přidat krok",
     stepName: "Název kroku",
@@ -137,6 +141,10 @@ const translations = {
     addProject: "Add project",
     projectName: "Project name",
     projectAddress: "Address / place",
+    projectStart: "Project start",
+    projectEnd: "Project end",
+    projectRange: "Project range",
+    projectProgress: "{completed} of {total} steps done",
     projectStep: "Project step",
     addProjectStep: "Add step",
     stepName: "Step name",
@@ -276,13 +284,8 @@ function renderTasks() {
 
 function renderPlan() {
   const dates = monthGridDates(currentPlanMonth);
-  const monthItems = state.tasks.filter(
-    (task) =>
-      task.active !== false &&
-      task.projectId &&
-      task.date &&
-      task.date.slice(0, 7) === currentPlanMonth.slice(0, 7)
-  );
+  const projectTasks = state.tasks.filter((task) => task.active !== false && task.projectId && task.date);
+  const monthItems = projectTasks.filter((task) => task.date.slice(0, 7) === currentPlanMonth.slice(0, 7));
 
   return `
     <article class="card plan-toolbar">
@@ -308,19 +311,23 @@ function renderPlan() {
         ${dates.map((date) => renderCalendarDay(date, monthItems)).join("")}
       </div>
     </article>
-    ${monthItems.length ? "" : renderEmpty(t("monthPlanEmpty"))}
+    ${projectTasks.length ? "" : renderEmpty(t("monthPlanEmpty"))}
   `;
 }
 
 function renderProject(project) {
-  const stepCount = state.tasks.filter((task) => task.active !== false && task.projectId === project.id).length;
+  const steps = state.tasks.filter((task) => task.active !== false && task.projectId === project.id);
+  const completed = steps.filter((task) => state.completions[`${task.id}:${task.date}`] === "done").length;
+  const total = steps.length;
   return `
     <div class="project-row">
       <span>
         <strong>${escapeHtml(project.name)}</strong>
         <small>${escapeHtml(project.address || "")}</small>
+        <small>${projectDateRange(project)}</small>
+        <small>${t("projectProgress", { completed, total })}</small>
       </span>
-      <em>${stepCount}</em>
+      <em>${total ? Math.round((completed / total) * 100) : 0}%</em>
     </div>
   `;
 }
@@ -483,6 +490,19 @@ function projectName(projectId) {
   return state.projects.find((project) => project.id === projectId)?.name || "";
 }
 
+function projectDateRange(project) {
+  if (project.startDate && project.endDate) return `${formatShortDate(project.startDate)} - ${formatShortDate(project.endDate)}`;
+  if (project.startDate) return `${t("projectStart")}: ${formatShortDate(project.startDate)}`;
+  if (project.endDate) return `${t("projectEnd")}: ${formatShortDate(project.endDate)}`;
+  return t("projectRange");
+}
+
+function isDateWithinProject(dateISO, project) {
+  const startsOk = !project.startDate || dateISO >= project.startDate;
+  const endsOk = !project.endDate || dateISO <= project.endDate;
+  return startsOk && endsOk;
+}
+
 function renderScoreList(title, items) {
   if (!items.length) return "";
   return `
@@ -606,12 +626,23 @@ function bindEvents() {
 }
 
 function openProjectModal() {
+  const today = todayISO();
   document.querySelector("#modal-root").innerHTML = `
     <div class="modal-backdrop">
       <form class="modal-card" id="project-form">
         <h2>${t("addProject")}</h2>
         <input name="name" autocomplete="off" placeholder="${t("projectName")}" />
         <input name="address" autocomplete="off" placeholder="${t("projectAddress")}" />
+        <div class="time-range">
+          <label>
+            <span>${t("projectStart")}</span>
+            <input name="startDate" type="date" value="${today}" />
+          </label>
+          <label>
+            <span>${t("projectEnd")}</span>
+            <input name="endDate" type="date" value="${addMonths(today, 1)}" />
+          </label>
+        </div>
         <div class="form-actions">
           <button type="button" class="secondary" data-close>${t("cancel")}</button>
           <button type="submit" class="primary">${t("save")}</button>
@@ -631,6 +662,8 @@ function openProjectModal() {
       id: String(Date.now()),
       name,
       address: form.elements.address.value.trim(),
+      startDate: form.elements.startDate.value || today,
+      endDate: form.elements.endDate.value || form.elements.startDate.value || today,
       createdAt: new Date().toISOString()
     });
     saveState();
@@ -644,12 +677,13 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
     openProjectModal();
     return;
   }
+  const activeProject = state.projects.find((project) => isDateWithinProject(date, project)) || state.projects[0];
   const task =
     state.tasks.find((item) => item.id === taskId) ||
     {
       id: null,
       title: "",
-      projectId: state.projects[0].id,
+      projectId: activeProject.id,
       date,
       startTime: "08:00",
       endTime: "16:00"
@@ -664,7 +698,7 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
             .map(
               (project) => `
                 <option value="${project.id}" ${project.id === task.projectId ? "selected" : ""}>
-                  ${escapeHtml(project.name)}
+                  ${escapeHtml(project.name)} (${projectDateRange(project)})
                 </option>
               `
             )
