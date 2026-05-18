@@ -230,10 +230,11 @@ function renderTasks() {
 }
 
 function renderRecap() {
-  const recap = weeklyRecap(hydratedOccurrencesForWeek(todayISO()));
+  const recap = weeklyRecap(recapOccurrences(), recapWindowDates());
   if (!recap.total) return `${renderProgressCard(t("recap"), recap)}${renderEmpty(t("noRecap"))}`;
   return `
     ${renderProgressCard(t("recap"), recap)}
+    ${renderWeekChart(recap.days)}
     ${renderScoreList(t("bestTasks"), recap.bestTasks)}
     ${renderScoreList(t("worstTasks"), recap.worstTasks)}
     <article class="card">
@@ -247,6 +248,18 @@ function renderRecap() {
       <p>${t(recap.recommendation)}</p>
     </article>
   `;
+}
+
+function recapOccurrences() {
+  const dates = recapWindowDates();
+  const baseDate = dates[dates.length - 1] || todayISO();
+  return hydratedOccurrencesForWeek(baseDate).filter((occurrence) => dates.includes(occurrence.date));
+}
+
+function recapWindowDates() {
+  const today = todayISO();
+  const baseDate = weekdayKey(today) === "sun" ? addDays(today, -1) : today;
+  return weekDates(baseDate).filter((date) => date <= baseDate);
 }
 
 function renderSettings() {
@@ -352,6 +365,30 @@ function renderScoreList(title, items) {
         )
         .join("")}
     </article>
+  `;
+}
+
+function renderWeekChart(days) {
+  if (!days.length) return "";
+  return `
+    <article class="card chart-card">
+      <div class="week-chart">
+        ${days.map(renderChartBar).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderChartBar(day) {
+  const percent = Math.round(day.percent * 100);
+  return `
+    <div class="chart-day">
+      <strong>${percent}%</strong>
+      <div class="chart-track">
+        <span style="height:${percent}%"></span>
+      </div>
+      <small>${t(dayLabelKeys(weekdayKey(day.date)))}</small>
+    </div>
   `;
 }
 
@@ -655,7 +692,7 @@ function calculateStreak() {
   return streak;
 }
 
-function weeklyRecap(occurrences) {
+function weeklyRecap(occurrences, dates = []) {
   const stats = completionStats(occurrences);
   const taskScores = Object.values(groupBy(occurrences, "taskId"))
     .map((items) => {
@@ -668,8 +705,14 @@ function weeklyRecap(occurrences) {
     .map(([date, items]) => ({ date, ...completionStats(items) }))
     .filter((item) => item.total > 0)
     .sort((a, b) => b.percent - a.percent || b.completed - a.completed);
+  const chartDates = dates.length ? dates : Object.keys(groupBy(occurrences, "date")).sort();
+  const chartDays = chartDates.map((date) => ({
+    date,
+    ...completionStats(occurrences.filter((item) => item.date === date))
+  }));
   return {
     ...stats,
+    days: chartDays,
     bestTasks: taskScores.filter((item) => item.percent >= STREAK_THRESHOLD).slice(0, 3),
     worstTasks: [...taskScores].sort((a, b) => a.percent - b.percent || b.total - a.total).slice(0, 3),
     bestDay: dayScores[0] || null,
