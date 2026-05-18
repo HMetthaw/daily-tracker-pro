@@ -177,6 +177,13 @@ button {
   background: var(--danger-soft);
 }
 
+.compact {
+  width: 46px;
+  min-height: 38px;
+  padding: 0;
+  font-size: 24px;
+}
+
 .occurrence {
   display: flex;
   align-items: center;
@@ -228,6 +235,107 @@ button {
 
 .score-line {
   padding: 6px 0;
+}
+
+.plan-toolbar {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-toolbar h2 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.project-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+
+.project-row:first-of-type {
+  border-top: 0;
+}
+
+.project-row strong,
+.project-row small {
+  display: block;
+}
+
+.project-row small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.project-row em {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-style: normal;
+  font-weight: 900;
+  display: inline-grid;
+  place-items: center;
+}
+
+.calendar-card {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.calendar-head strong {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.calendar-day {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 82px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+}
+
+.calendar-day.outside {
+  opacity: 0.38;
+}
+
+.calendar-day.today {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.calendar-day > span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.calendar-day small {
+  overflow: hidden;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-card {
@@ -317,7 +425,7 @@ button {
   left: 0;
   z-index: 3;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   max-width: 720px;
   min-height: calc(72px + env(safe-area-inset-bottom));
   margin: 0 auto;
@@ -392,7 +500,8 @@ button {
   font-size: 18px;
 }
 
-.modal-card input {
+.modal-card input,
+.select-input {
   width: 100%;
   min-height: 48px;
   border: 1px solid var(--border);
@@ -400,6 +509,27 @@ button {
   padding: 0 12px;
   color: var(--text);
   background: var(--surface);
+}
+
+.select-input {
+  appearance: none;
+}
+
+.time-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.time-range label {
+  display: grid;
+  gap: 5px;
+}
+
+.time-range span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .days-row {

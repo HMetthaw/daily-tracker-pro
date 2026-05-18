@@ -8,6 +8,7 @@ const translations = {
     today: "Dnes",
     week: "Týden",
     tasks: "Úkoly",
+    plan: "Plán",
     recap: "Recap",
     settings: "Nastavení",
     addTask: "Přidat úkol",
@@ -56,12 +57,30 @@ const translations = {
     pwaLimit: "PWA notifikace jsou demo režim; pro přesné budíky je lepší pozdější iOS build.",
     taskTime: "Čas na úkol",
     weeklyRecap: "Týdenní recap"
+    ,
+    projects: "Projekty",
+    addProject: "Přidat projekt",
+    projectName: "Název projektu",
+    projectAddress: "Adresa / místo",
+    projectStep: "Krok projektu",
+    addProjectStep: "Přidat krok",
+    stepName: "Název kroku",
+    plannedTime: "Plánovaný čas",
+    from: "Od",
+    to: "Do",
+    monthPlanEmpty: "Vyber den v kalendáři nebo přidej projektový krok.",
+    noProjects: "Zatím nemáš žádný projekt.",
+    selectProject: "Vyber projekt",
+    projectRequired: "Nejdřív přidej projekt.",
+    previousMonth: "Předchozí měsíc",
+    nextMonth: "Další měsíc"
   },
   en: {
     appName: "Daily Tracker Pro",
     today: "Today",
     week: "Week",
     tasks: "Tasks",
+    plan: "Plan",
     recap: "Recap",
     settings: "Settings",
     addTask: "Add task",
@@ -109,12 +128,29 @@ const translations = {
     installHint: "Add to Home Screen",
     pwaLimit: "PWA notifications are demo mode; a later iOS build is better for exact alarms.",
     taskTime: "Task time",
-    weeklyRecap: "Weekly recap"
+    weeklyRecap: "Weekly recap",
+    projects: "Projects",
+    addProject: "Add project",
+    projectName: "Project name",
+    projectAddress: "Address / place",
+    projectStep: "Project step",
+    addProjectStep: "Add step",
+    stepName: "Step name",
+    plannedTime: "Planned time",
+    from: "From",
+    to: "To",
+    monthPlanEmpty: "Pick a date in the calendar or add a project step.",
+    noProjects: "You do not have any projects yet.",
+    selectProject: "Select project",
+    projectRequired: "Add a project first.",
+    previousMonth: "Previous month",
+    nextMonth: "Next month"
   }
 };
 
 let state = loadState();
 let currentScreen = "today";
+let currentPlanMonth = startOfMonthISO(todayISO());
 let editingTaskId = null;
 let notifiedKeys = new Set();
 
@@ -138,6 +174,7 @@ function t(key, params = {}) {
 
 function loadState() {
   const fallback = {
+    projects: [],
     tasks: [],
     completions: {},
     settings: { language: "cs", theme: "light", notifications: "default" }
@@ -185,6 +222,7 @@ function renderScreen() {
   if (currentScreen === "today") return renderToday();
   if (currentScreen === "week") return renderWeek();
   if (currentScreen === "tasks") return renderTasks();
+  if (currentScreen === "plan") return renderPlan();
   if (currentScreen === "recap") return renderRecap();
   return renderSettings();
 }
@@ -226,6 +264,72 @@ function renderTasks() {
   return `
     <button class="primary full" data-action="new-recurring">+ ${t("addTask")}</button>
     ${tasks.length ? tasks.map(renderTask).join("") : renderEmpty(t("tasksEmpty"))}
+  `;
+}
+
+function renderPlan() {
+  const dates = monthGridDates(currentPlanMonth);
+  const monthItems = state.tasks.filter(
+    (task) =>
+      task.active !== false &&
+      task.projectId &&
+      task.date &&
+      task.date.slice(0, 7) === currentPlanMonth.slice(0, 7)
+  );
+
+  return `
+    <article class="card plan-toolbar">
+      <div class="row between">
+        <button class="secondary compact" data-action="prev-month" aria-label="${t("previousMonth")}">‹</button>
+        <h2>${monthName(currentPlanMonth)}</h2>
+        <button class="secondary compact" data-action="next-month" aria-label="${t("nextMonth")}">›</button>
+      </div>
+      <div class="form-actions">
+        <button class="secondary" data-action="new-project">+ ${t("addProject")}</button>
+        <button class="primary" data-action="new-plan-step">+ ${t("addProjectStep")}</button>
+      </div>
+    </article>
+    <article class="card">
+      <h2>${t("projects")}</h2>
+      ${state.projects.length ? state.projects.map(renderProject).join("") : `<p class="muted">${t("noProjects")}</p>`}
+    </article>
+    <article class="card calendar-card">
+      <div class="calendar-grid calendar-head">
+        ${WEEKDAYS.map((day) => `<strong>${t(dayLabelKeys(day))}</strong>`).join("")}
+      </div>
+      <div class="calendar-grid">
+        ${dates.map((date) => renderCalendarDay(date, monthItems)).join("")}
+      </div>
+    </article>
+    ${monthItems.length ? "" : renderEmpty(t("monthPlanEmpty"))}
+  `;
+}
+
+function renderProject(project) {
+  const stepCount = state.tasks.filter((task) => task.active !== false && task.projectId === project.id).length;
+  return `
+    <div class="project-row">
+      <span>
+        <strong>${escapeHtml(project.name)}</strong>
+        <small>${escapeHtml(project.address || "")}</small>
+      </span>
+      <em>${stepCount}</em>
+    </div>
+  `;
+}
+
+function renderCalendarDay(date, monthItems) {
+  const inMonth = date.slice(0, 7) === currentPlanMonth.slice(0, 7);
+  const items = monthItems.filter((task) => task.date === date);
+  return `
+    <button class="calendar-day ${inMonth ? "" : "outside"} ${date === todayISO() ? "today" : ""}" data-plan-date="${date}">
+      <span>${Number(date.slice(8, 10))}</span>
+      ${items
+        .slice(0, 3)
+        .map((item) => `<small>${escapeHtml(item.title)}</small>`)
+        .join("")}
+      ${items.length > 3 ? `<small>+${items.length - 3}</small>` : ""}
+    </button>
   `;
 }
 
@@ -292,6 +396,7 @@ function renderTabs() {
     ["today", "✓", "today"],
     ["week", "▦", "week"],
     ["tasks", "+", "tasks"],
+    ["plan", "□", "plan"],
     ["recap", "%", "recap"],
     ["settings", "⚙", "settings"]
   ];
@@ -330,7 +435,7 @@ function renderOccurrence(occurrence) {
       <span>${done ? "●" : "○"}</span>
       <span>
         <strong>${escapeHtml(occurrence.title)}</strong>
-        <small>${occurrence.reminderTime || t("noReminder")}</small>
+        <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
       </span>
     </button>
   `;
@@ -342,11 +447,33 @@ function renderTask(task) {
     <article class="task-card">
       <button class="task-main" data-edit-task="${task.id}">
         <strong>${escapeHtml(task.title)}</strong>
-        <small>${detail} - ${task.reminderTime || t("noReminder")}</small>
+        <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${task.reminderTime || t("noReminder")}`)}</small>
       </button>
       <button class="danger" data-delete-task="${task.id}">${t("delete")}</button>
     </article>
   `;
+}
+
+function occurrenceMeta(occurrence) {
+  const time = timeRange(occurrence);
+  const project = occurrence.projectId ? projectName(occurrence.projectId) : "";
+  if (time && project) return `${time} - ${project}`;
+  return time || project || occurrence.reminderTime || t("noReminder");
+}
+
+function projectTaskMeta(task) {
+  const project = projectName(task.projectId);
+  const time = timeRange(task);
+  return `${task.date || ""}${time ? ` - ${time}` : ""}${project ? ` - ${project}` : ""}`;
+}
+
+function timeRange(item) {
+  if (item.startTime && item.endTime) return `${item.startTime}-${item.endTime}`;
+  return item.startTime || item.endTime || item.reminderTime || "";
+}
+
+function projectName(projectId) {
+  return state.projects.find((project) => project.id === projectId)?.name || "";
 }
 
 function renderScoreList(title, items) {
@@ -427,9 +554,29 @@ function bindEvents() {
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
+  document.querySelector("[data-action='new-project']")?.addEventListener("click", openProjectModal);
+  document.querySelector("[data-action='new-plan-step']")?.addEventListener("click", () => openPlanStepModal(todayISO()));
+  document.querySelector("[data-action='prev-month']")?.addEventListener("click", () => {
+    currentPlanMonth = addMonths(currentPlanMonth, -1);
+    render();
+  });
+  document.querySelector("[data-action='next-month']")?.addEventListener("click", () => {
+    currentPlanMonth = addMonths(currentPlanMonth, 1);
+    render();
+  });
+  document.querySelectorAll("[data-plan-date]").forEach((button) => {
+    button.addEventListener("click", () => openPlanStepModal(button.dataset.planDate));
+  });
   document.querySelector("[data-action='notifications']")?.addEventListener("click", requestNotifications);
   document.querySelectorAll("[data-edit-task]").forEach((button) => {
-    button.addEventListener("click", () => openTaskModal(null, button.dataset.editTask));
+    button.addEventListener("click", () => {
+      const task = state.tasks.find((item) => item.id === button.dataset.editTask);
+      if (task?.projectId) {
+        openPlanStepModal(task.date || todayISO(), task.id);
+      } else {
+        openTaskModal(null, button.dataset.editTask);
+      }
+    });
   });
   document.querySelectorAll("[data-delete-task]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -446,6 +593,130 @@ function bindEvents() {
       render();
     });
   });
+}
+
+function openProjectModal() {
+  document.querySelector("#modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <form class="modal-card" id="project-form">
+        <h2>${t("addProject")}</h2>
+        <input name="name" autocomplete="off" placeholder="${t("projectName")}" />
+        <input name="address" autocomplete="off" placeholder="${t("projectAddress")}" />
+        <div class="form-actions">
+          <button type="button" class="secondary" data-close>${t("cancel")}</button>
+          <button type="submit" class="primary">${t("save")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = document.querySelector("#project-form");
+  form.elements.name.focus();
+  form.querySelector("[data-close]").addEventListener("click", closeModal);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = form.elements.name.value.trim();
+    if (!name) return;
+    state.projects.push({
+      id: String(Date.now()),
+      name,
+      address: form.elements.address.value.trim(),
+      createdAt: new Date().toISOString()
+    });
+    saveState();
+    closeModal();
+    render();
+  });
+}
+
+function openPlanStepModal(date = todayISO(), taskId = null) {
+  if (!state.projects.length) {
+    openProjectModal();
+    return;
+  }
+  const task =
+    state.tasks.find((item) => item.id === taskId) ||
+    {
+      id: null,
+      title: "",
+      projectId: state.projects[0].id,
+      date,
+      startTime: "08:00",
+      endTime: "16:00"
+    };
+
+  document.querySelector("#modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <form class="modal-card" id="plan-step-form">
+        <h2>${t("projectStep")}</h2>
+        <select name="projectId" class="select-input">
+          ${state.projects
+            .map(
+              (project) => `
+                <option value="${project.id}" ${project.id === task.projectId ? "selected" : ""}>
+                  ${escapeHtml(project.name)}
+                </option>
+              `
+            )
+            .join("")}
+        </select>
+        <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("stepName")}" />
+        <input name="date" type="date" value="${task.date || date}" />
+        <div class="time-range">
+          <label>
+            <span>${t("from")}</span>
+            <input name="startTime" type="time" value="${task.startTime || task.reminderTime || "08:00"}" />
+          </label>
+          <label>
+            <span>${t("to")}</span>
+            <input name="endTime" type="time" value="${task.endTime || "16:00"}" />
+          </label>
+        </div>
+        <p class="muted">${t("plannedTime")} - ${t("reminder")}: ${t("from").toLowerCase()}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary" data-close>${t("cancel")}</button>
+          <button type="submit" class="primary">${t("save")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = document.querySelector("#plan-step-form");
+  form.elements.title.focus();
+  setTimeout(() => form.elements.title.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
+  form.querySelector("[data-close]").addEventListener("click", closeModal);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    savePlanStepFromForm(form, taskId);
+  });
+}
+
+function savePlanStepFromForm(form, taskId = null) {
+  const title = form.elements.title.value.trim();
+  if (!title) return;
+  const existing = state.tasks.find((item) => item.id === taskId);
+  const startTime = form.elements.startTime.value || "";
+  const task = {
+    id: existing?.id || String(Date.now()),
+    title,
+    type: "oneTime",
+    projectId: form.elements.projectId.value,
+    daysOfWeek: [],
+    date: form.elements.date.value || todayISO(),
+    startTime,
+    endTime: form.elements.endTime.value || "",
+    reminderTime: startTime,
+    active: true,
+    createdAt: existing?.createdAt || new Date().toISOString()
+  };
+  if (existing) {
+    state.tasks = state.tasks.map((item) => (item.id === task.id ? task : item));
+  } else {
+    state.tasks.push(task);
+  }
+  saveState();
+  closeModal();
+  render();
 }
 
 function openTaskModal(type = "recurring", taskId = null) {
@@ -658,7 +929,10 @@ function createOccurrence(task, date) {
     taskId: task.id,
     title: task.title,
     type: task.type,
+    projectId: task.projectId || "",
     date,
+    startTime: task.startTime || "",
+    endTime: task.endTime || "",
     reminderTime: task.reminderTime || "",
     status: "pending"
   };
@@ -756,6 +1030,37 @@ function addDays(dateISO, amount) {
   const date = parseISODate(dateISO);
   date.setDate(date.getDate() + amount);
   return toISODate(date);
+}
+
+function startOfMonthISO(dateISO) {
+  const date = parseISODate(dateISO);
+  date.setDate(1);
+  return toISODate(date);
+}
+
+function addMonths(dateISO, amount) {
+  const date = parseISODate(dateISO);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + amount);
+  return toISODate(date);
+}
+
+function monthName(dateISO) {
+  return parseISODate(dateISO).toLocaleDateString(state.settings.language === "cs" ? "cs-CZ" : "en-US", {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function monthGridDates(dateISO) {
+  const first = parseISODate(startOfMonthISO(dateISO));
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return toISODate(date);
+  });
 }
 
 function weekDates(dateISO) {
