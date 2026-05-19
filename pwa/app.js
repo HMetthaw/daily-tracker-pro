@@ -17,6 +17,9 @@ const translations = {
     noReminder: "Bez času",
     recurring: "Opakovaný",
     oneTime: "Jednorázový",
+    weeklyDays: "Dny v týdnu",
+    everyOtherDay: "Ob den",
+    repeatStart: "Start opakování",
     save: "Uložit",
     cancel: "Zrušit",
     delete: "Smazat",
@@ -79,7 +82,7 @@ const translations = {
     projectStart: "Začátek projektu",
     projectEnd: "Konec projektu",
     projectRange: "Rozsah projektu",
-    projectProgress: "{completed} z {total} kroků hotovo",
+    projectProgress: "{completed} z {total} kroků tento měsíc hotovo",
     projectStep: "Krok projektu",
     addProjectStep: "Přidat krok",
     stepName: "Název kroku",
@@ -107,6 +110,9 @@ const translations = {
     noReminder: "No time",
     recurring: "Recurring",
     oneTime: "One-time",
+    weeklyDays: "Weekdays",
+    everyOtherDay: "Every other day",
+    repeatStart: "Repeat start",
     save: "Save",
     cancel: "Cancel",
     delete: "Delete",
@@ -168,7 +174,7 @@ const translations = {
     projectStart: "Project start",
     projectEnd: "Project end",
     projectRange: "Project range",
-    projectProgress: "{completed} of {total} steps done",
+    projectProgress: "{completed} of {total} steps done this month",
     projectStep: "Project step",
     addProjectStep: "Add step",
     stepName: "Step name",
@@ -331,8 +337,8 @@ function renderTasks() {
 
 function renderPlan() {
   const dates = monthGridDates(currentPlanMonth);
-  const projectTasks = state.tasks.filter((task) => task.active !== false && task.projectId && task.date);
-  const monthItems = projectTasks.filter((task) => task.date.slice(0, 7) === currentPlanMonth.slice(0, 7));
+  const projectTasks = state.tasks.filter((task) => task.active !== false && task.projectId);
+  const monthItems = projectOccurrencesForDates(dates).filter((occurrence) => occurrence.date.slice(0, 7) === currentPlanMonth.slice(0, 7));
 
   return `
     <article class="card plan-toolbar">
@@ -363,9 +369,11 @@ function renderPlan() {
 }
 
 function renderProject(project) {
-  const steps = state.tasks.filter((task) => task.active !== false && task.projectId === project.id);
-  const completed = steps.filter((task) => state.completions[`${task.id}:${task.date}`] === "done").length;
-  const total = steps.length;
+  const monthOccurrences = projectOccurrencesForDates(monthGridDates(currentPlanMonth)).filter(
+    (occurrence) => occurrence.projectId === project.id && occurrence.date.slice(0, 7) === currentPlanMonth.slice(0, 7)
+  );
+  const completed = monthOccurrences.filter((occurrence) => state.completions[occurrence.id] === "done").length;
+  const total = monthOccurrences.length;
   return `
     <div class="project-row">
       <span>
@@ -461,6 +469,17 @@ function renderSettings() {
   `;
 }
 
+function projectOccurrencesForDates(dates) {
+  const activeProjectTasks = state.tasks.filter((task) => task.active !== false && task.projectId);
+  const itemsById = new Map();
+  for (const date of dates) {
+    for (const occurrence of occurrencesForWeek(activeProjectTasks, date)) {
+      if (dates.includes(occurrence.date)) itemsById.set(occurrence.id, occurrence);
+    }
+  }
+  return [...itemsById.values()].sort((a, b) => a.date.localeCompare(b.date) || (a.reminderTime || "99:99").localeCompare(b.reminderTime || "99:99"));
+}
+
 function renderTabs() {
   const tabs = [
     ["today", "✓", "today"],
@@ -548,7 +567,18 @@ function occurrenceMeta(occurrence) {
 function projectTaskMeta(task) {
   const project = projectName(task.projectId);
   const time = timeRange(task);
-  return `${task.date || ""}${time ? ` - ${time}` : ""}${project ? ` - ${project}` : ""}`;
+  const plan =
+    task.type === "recurring"
+      ? task.recurrence === "everyOtherDay"
+        ? `${t("everyOtherDay")} ${task.date ? `${t("from").toLowerCase()} ${formatShortDate(task.date)}` : ""}`
+        : `${t("recurring")} ${daysSummary(task.daysOfWeek || [])}`
+      : task.date || "";
+  return `${plan}${time ? ` - ${time}` : ""}${project ? ` - ${project}` : ""}`;
+}
+
+function daysSummary(days) {
+  if (!days.length) return "";
+  return days.map((day) => t(dayLabelKeys(day))).join(", ");
 }
 
 function timeRange(item) {
@@ -768,10 +798,18 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
       id: null,
       title: "",
       projectId: activeProject.id,
+      type: "oneTime",
+      recurrence: "weekdays",
+      daysOfWeek: [...WEEKDAYS],
       date,
       startTime: "08:00",
       endTime: "16:00"
     };
+  const selectedDays = new Set(task.daysOfWeek?.length ? task.daysOfWeek : WEEKDAYS);
+  const taskType = task.type || "oneTime";
+  const recurrence = task.recurrence || "weekdays";
+  const showDate = taskType === "oneTime" || (taskType === "recurring" && recurrence === "everyOtherDay");
+  const showDays = taskType === "recurring" && recurrence === "weekdays";
 
   document.querySelector("#modal-root").innerHTML = `
     <div class="modal-backdrop">
@@ -789,7 +827,30 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
             .join("")}
         </select>
         <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("stepName")}" />
-        <input name="date" type="date" value="${task.date || date}" />
+        <div class="segmented">
+          <button type="button" class="${taskType === "oneTime" ? "active" : ""}" data-plan-type="oneTime">${t("oneTime")}</button>
+          <button type="button" class="${taskType === "recurring" ? "active" : ""}" data-plan-type="recurring">${t("recurring")}</button>
+        </div>
+        <input type="hidden" name="type" value="${taskType}" />
+        <div class="segmented repeat-mode ${taskType === "recurring" ? "" : "hidden"}">
+          <button type="button" class="${recurrence === "weekdays" ? "active" : ""}" data-recurrence="weekdays">${t("weeklyDays")}</button>
+          <button type="button" class="${recurrence === "everyOtherDay" ? "active" : ""}" data-recurrence="everyOtherDay">${t("everyOtherDay")}</button>
+        </div>
+        <input type="hidden" name="recurrence" value="${recurrence}" />
+        <label class="date-row ${showDate ? "" : "hidden"}">
+          <span data-date-label>${taskType === "recurring" ? t("repeatStart") : t("taskDate")}</span>
+          <input name="date" type="date" value="${task.date || date}" />
+        </label>
+        <div class="days-row ${showDays ? "" : "hidden"}">
+          ${WEEKDAYS.map(
+            (day) => `
+              <button type="button" class="${selectedDays.has(day) ? "active" : ""}" data-plan-day="${day}">
+                ${t(dayLabelKeys(day))}
+              </button>
+            `
+          ).join("")}
+        </div>
+        <input type="hidden" name="days" value="${[...selectedDays].join(",")}" />
         <div class="time-range">
           <label>
             <span>${t("from")}</span>
@@ -813,6 +874,35 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
   form.elements.title.focus();
   setTimeout(() => form.elements.title.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
   form.querySelector("[data-close]").addEventListener("click", closeModal);
+  const updatePlanRepeatFields = () => {
+    const isRecurring = form.elements.type.value === "recurring";
+    const isEveryOtherDay = form.elements.recurrence.value === "everyOtherDay";
+    form.querySelector(".repeat-mode").classList.toggle("hidden", !isRecurring);
+    form.querySelector(".days-row").classList.toggle("hidden", !isRecurring || isEveryOtherDay);
+    form.querySelector(".date-row").classList.toggle("hidden", !(form.elements.type.value === "oneTime" || (isRecurring && isEveryOtherDay)));
+    form.querySelector("[data-date-label]").textContent = isRecurring ? t("repeatStart") : t("taskDate");
+  };
+  form.querySelectorAll("[data-plan-type]").forEach((button) => {
+    button.addEventListener("click", () => {
+      form.elements.type.value = button.dataset.planType;
+      form.querySelectorAll("[data-plan-type]").forEach((item) => item.classList.toggle("active", item === button));
+      updatePlanRepeatFields();
+    });
+  });
+  form.querySelectorAll("[data-recurrence]").forEach((button) => {
+    button.addEventListener("click", () => {
+      form.elements.recurrence.value = button.dataset.recurrence;
+      form.querySelectorAll("[data-recurrence]").forEach((item) => item.classList.toggle("active", item === button));
+      updatePlanRepeatFields();
+    });
+  });
+  form.querySelectorAll("[data-plan-day]").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.classList.toggle("active");
+      const days = [...form.querySelectorAll("[data-plan-day].active")].map((item) => item.dataset.planDay);
+      form.elements.days.value = days.join(",");
+    });
+  });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     savePlanStepFromForm(form, taskId);
@@ -824,13 +914,16 @@ function savePlanStepFromForm(form, taskId = null) {
   if (!title) return;
   const existing = state.tasks.find((item) => item.id === taskId);
   const startTime = form.elements.startTime.value || "";
+  const type = form.elements.type.value;
+  const recurrence = type === "recurring" ? form.elements.recurrence.value : "";
   const task = {
     id: existing?.id || String(Date.now()),
     title,
-    type: "oneTime",
+    type,
+    recurrence,
     projectId: form.elements.projectId.value,
-    daysOfWeek: [],
-    date: form.elements.date.value || todayISO(),
+    daysOfWeek: type === "recurring" && recurrence === "weekdays" ? form.elements.days.value.split(",").filter(Boolean) : [],
+    date: type === "oneTime" || recurrence === "everyOtherDay" ? form.elements.date.value || todayISO() : "",
     startTime,
     endTime: form.elements.endTime.value || "",
     reminderTime: startTime,
@@ -1107,12 +1200,24 @@ function occurrencesForWeek(tasks, dateISO) {
   const dates = weekDates(dateISO);
   const occurrences = [];
   for (const task of tasks) {
+    const project = task.projectId ? state.projects.find((item) => item.id === task.projectId) : null;
     if (task.type === "oneTime") {
-      if (dates.includes(task.date)) occurrences.push(createOccurrence(task, task.date));
+      if (dates.includes(task.date) && (!project || isDateWithinProject(task.date, project))) occurrences.push(createOccurrence(task, task.date));
+      continue;
+    }
+    if (task.recurrence === "everyOtherDay") {
+      const anchorDate = task.date || project?.startDate || dates[0];
+      for (const date of dates) {
+        if (date >= anchorDate && daysBetween(anchorDate, date) % 2 === 0 && (!project || isDateWithinProject(date, project))) {
+          occurrences.push(createOccurrence(task, date));
+        }
+      }
       continue;
     }
     for (const date of dates) {
-      if ((task.daysOfWeek || []).includes(weekdayKey(date))) occurrences.push(createOccurrence(task, date));
+      if ((task.daysOfWeek || []).includes(weekdayKey(date)) && (!project || isDateWithinProject(date, project))) {
+        occurrences.push(createOccurrence(task, date));
+      }
     }
   }
   return occurrences.sort((a, b) => a.date.localeCompare(b.date) || (a.reminderTime || "99:99").localeCompare(b.reminderTime || "99:99"));
@@ -1252,6 +1357,11 @@ function addDays(dateISO, amount) {
   const date = parseISODate(dateISO);
   date.setDate(date.getDate() + amount);
   return toISODate(date);
+}
+
+function daysBetween(startISO, endISO) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((parseISODate(endISO) - parseISODate(startISO)) / millisecondsPerDay);
 }
 
 function startOfMonthISO(dateISO) {
