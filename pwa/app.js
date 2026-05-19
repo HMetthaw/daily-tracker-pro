@@ -35,6 +35,13 @@ const translations = {
     allowNotifications: "Povolit notifikace",
     notificationReady: "Notifikace jsou povolené.",
     localOnly: "Data jsou uložená jen v tomto zařízení.",
+    dataManagement: "Data",
+    backupHint: "Stáhni si zálohu nebo obnov data z dříve exportovaného souboru.",
+    exportData: "Exportovat data",
+    importData: "Importovat data",
+    importConfirm: "Import nahradí aktuální data v tomto zařízení. Pokračovat?",
+    importSuccess: "Data byla obnovena.",
+    importInvalid: "Soubor nejde načíst jako záloha Daily Tracker Pro.",
     sunday: "Ne",
     monday: "Po",
     tuesday: "Út",
@@ -58,7 +65,12 @@ const translations = {
     installHint: "Přidat na plochu",
     pwaLimit: "PWA notifikace jsou demo režim; pro přesné budíky je lepší pozdější iOS build.",
     taskTime: "Čas na úkol",
-    weeklyRecap: "Týdenní recap"
+    weeklyRecap: "Týdenní recap",
+    snooze: "Připomenout znovu",
+    snooze15: "15 min",
+    snooze30: "30 min",
+    snooze60: "1 h",
+    snoozedUntil: "Znovu v {time}"
     ,
     projects: "Projekty",
     addProject: "Přidat projekt",
@@ -113,6 +125,13 @@ const translations = {
     allowNotifications: "Allow notifications",
     notificationReady: "Notifications are allowed.",
     localOnly: "Data is stored only on this device.",
+    dataManagement: "Data",
+    backupHint: "Download a backup or restore data from an earlier export file.",
+    exportData: "Export data",
+    importData: "Import data",
+    importConfirm: "Import will replace the current data on this device. Continue?",
+    importSuccess: "Data was restored.",
+    importInvalid: "This file cannot be read as a Daily Tracker Pro backup.",
     sunday: "Sun",
     monday: "Mon",
     tuesday: "Tue",
@@ -137,6 +156,11 @@ const translations = {
     pwaLimit: "PWA notifications are demo mode; a later iOS build is better for exact alarms.",
     taskTime: "Task time",
     weeklyRecap: "Weekly recap",
+    snooze: "Remind again",
+    snooze15: "15 min",
+    snooze30: "30 min",
+    snooze60: "1 h",
+    snoozedUntil: "Again at {time}",
     projects: "Projects",
     addProject: "Add project",
     projectName: "Project name",
@@ -185,21 +209,44 @@ function t(key, params = {}) {
 }
 
 function loadState() {
-  const fallback = {
-    projects: [],
-    tasks: [],
-    completions: {},
-    settings: { language: "cs", theme: "light", notifications: "default" }
-  };
   try {
-    return { ...fallback, ...JSON.parse(localStorage.getItem(STORE_KEY) || "{}") };
+    return normalizeState(JSON.parse(localStorage.getItem(STORE_KEY) || "{}"));
   } catch {
-    return fallback;
+    return defaultState();
   }
 }
 
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+
+function defaultState() {
+  return {
+    projects: [],
+    tasks: [],
+    completions: {},
+    snoozes: {},
+    settings: { language: "cs", theme: "light", notifications: "default" }
+  };
+}
+
+function normalizeState(value) {
+  const fallback = defaultState();
+  const source = value && typeof value === "object" ? value : {};
+  const settings = source.settings && typeof source.settings === "object" && !Array.isArray(source.settings) ? source.settings : {};
+  return {
+    projects: Array.isArray(source.projects) ? source.projects : fallback.projects,
+    tasks: Array.isArray(source.tasks) ? source.tasks : fallback.tasks,
+    completions:
+      source.completions && typeof source.completions === "object" && !Array.isArray(source.completions)
+        ? source.completions
+        : fallback.completions,
+    snoozes:
+      source.snoozes && typeof source.snoozes === "object" && !Array.isArray(source.snoozes)
+        ? source.snoozes
+        : fallback.snoozes,
+    settings: { ...fallback.settings, ...settings }
+  };
 }
 
 function render() {
@@ -381,7 +428,7 @@ function recapWindowDates() {
 }
 
 function renderSettings() {
-  const notificationText = Notification.permission === "granted" ? t("notificationReady") : t("pwaLimit");
+  const notificationText = "Notification" in window && Notification.permission === "granted" ? t("notificationReady") : t("pwaLimit");
   return `
     <article class="card">
       <h2>${t("language")}</h2>
@@ -401,6 +448,15 @@ function renderSettings() {
       <h2>${t("notifications")}</h2>
       <p class="muted">${notificationText}</p>
       <button class="secondary full" data-action="notifications">${t("allowNotifications")}</button>
+    </article>
+    <article class="card">
+      <h2>${t("dataManagement")}</h2>
+      <p class="muted">${t("backupHint")}</p>
+      <div class="form-actions settings-actions">
+        <button class="secondary" data-action="export-data">${t("exportData")}</button>
+        <button class="primary" data-action="import-data">${t("importData")}</button>
+      </div>
+      <input class="hidden" data-import-file type="file" accept="application/json,.json" />
     </article>
   `;
 }
@@ -445,13 +501,26 @@ function renderProgressCard(title, stats) {
 function renderOccurrence(occurrence) {
   const done = occurrence.status === "done";
   return `
-    <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
-      <span>${done ? "●" : "○"}</span>
-      <span>
-        <strong>${escapeHtml(occurrence.title)}</strong>
-        <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
-      </span>
-    </button>
+    <article class="occurrence-card">
+      <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
+        <span>${done ? "●" : "○"}</span>
+        <span>
+          <strong>${escapeHtml(occurrence.title)}</strong>
+          <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
+        </span>
+      </button>
+      ${done ? "" : renderSnoozeActions(occurrence)}
+    </article>
+  `;
+}
+
+function renderSnoozeActions(occurrence) {
+  return `
+    <div class="snooze-row" aria-label="${t("snooze")}">
+      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="15">${t("snooze15")}</button>
+      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="30">${t("snooze30")}</button>
+      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="60">${t("snooze60")}</button>
+    </div>
   `;
 }
 
@@ -471,8 +540,9 @@ function renderTask(task) {
 function occurrenceMeta(occurrence) {
   const time = timeRange(occurrence);
   const project = occurrence.projectId ? projectName(occurrence.projectId) : "";
-  if (time && project) return `${time} - ${project}`;
-  return time || project || occurrence.reminderTime || t("noReminder");
+  const base = time && project ? `${time} - ${project}` : time || project || occurrence.reminderTime || t("noReminder");
+  const snooze = snoozeLabel(occurrence.snoozeAt);
+  return snooze ? `${base} - ${snooze}` : base;
 }
 
 function projectTaskMeta(task) {
@@ -579,6 +649,11 @@ function bindEvents() {
   document.querySelectorAll("[data-occurrence]").forEach((button) => {
     button.addEventListener("click", () => toggleOccurrence(button.dataset.occurrence));
   });
+  document.querySelectorAll("[data-snooze-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => {
+      snoozeOccurrence(button.dataset.snoozeOccurrence, Number(button.dataset.snoozeMinutes));
+    });
+  });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
   document.querySelectorAll("[data-add-onetime-date]").forEach((button) => {
@@ -598,6 +673,15 @@ function bindEvents() {
     button.addEventListener("click", () => openPlanStepModal(button.dataset.planDate));
   });
   document.querySelector("[data-action='notifications']")?.addEventListener("click", requestNotifications);
+  document.querySelector("[data-action='export-data']")?.addEventListener("click", exportData);
+  document.querySelector("[data-action='import-data']")?.addEventListener("click", () => {
+    document.querySelector("[data-import-file]")?.click();
+  });
+  document.querySelector("[data-import-file]")?.addEventListener("change", (event) => {
+    const [file] = event.target.files || [];
+    if (file) importData(file);
+    event.target.value = "";
+  });
   document.querySelectorAll("[data-edit-task]").forEach((button) => {
     button.addEventListener("click", () => {
       const task = state.tasks.find((item) => item.id === button.dataset.editTask);
@@ -927,6 +1011,59 @@ function requestNotifications() {
   });
 }
 
+function exportData() {
+  const backup = {
+    app: "daily-tracker-pro",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    state: normalizeState(state)
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `daily-tracker-pro-backup-${todayISO()}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importData(file) {
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    try {
+      const imported = parseBackup(String(reader.result || ""));
+      if (!window.confirm(t("importConfirm"))) return;
+      state = imported;
+      saveState();
+      currentPlanMonth = startOfMonthISO(todayISO());
+      render();
+      window.alert(t("importSuccess"));
+    } catch {
+      window.alert(t("importInvalid"));
+    }
+  });
+  reader.readAsText(file);
+}
+
+function parseBackup(text) {
+  const payload = JSON.parse(text);
+  const importedState = payload?.app === "daily-tracker-pro" && payload.state ? payload.state : payload;
+  if (
+    !importedState ||
+    typeof importedState !== "object" ||
+    !Array.isArray(importedState.tasks) ||
+    !Array.isArray(importedState.projects) ||
+    !importedState.completions ||
+    typeof importedState.completions !== "object" ||
+    Array.isArray(importedState.completions)
+  ) {
+    throw new Error("Invalid backup");
+  }
+  return normalizeState(importedState);
+}
+
 function startReminderLoop() {
   setInterval(checkReminders, 30000);
   checkReminders();
@@ -936,12 +1073,20 @@ function checkReminders() {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const now = new Date();
   const currentDate = toISODate(now);
-  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const currentTime = timeString(now);
   for (const occurrence of hydratedOccurrencesForWeek(currentDate)) {
     const key = `${occurrence.id}:${currentTime}`;
     if (occurrence.date === currentDate && occurrence.reminderTime === currentTime && !notifiedKeys.has(key)) {
       notifiedKeys.add(key);
       new Notification(t("taskTime"), { body: occurrence.title, icon: "./icons/icon.svg" });
+    }
+    const snoozeKey = `${occurrence.id}:snooze:${currentTime}`;
+    if (occurrence.snoozeAt === `${currentDate}T${currentTime}` && !notifiedKeys.has(snoozeKey)) {
+      notifiedKeys.add(snoozeKey);
+      delete state.snoozes[occurrence.id];
+      saveState();
+      new Notification(t("snooze"), { body: occurrence.title, icon: "./icons/icon.svg" });
+      render();
     }
   }
   if (now.getDay() === 0 && currentTime === "09:00" && !notifiedKeys.has(`recap:${currentDate}`)) {
@@ -953,7 +1098,8 @@ function checkReminders() {
 function hydratedOccurrencesForWeek(dateISO) {
   return occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO).map((occurrence) => ({
     ...occurrence,
-    status: state.completions[occurrence.id] || occurrence.status
+    status: state.completions[occurrence.id] || occurrence.status,
+    snoozeAt: state.snoozes[occurrence.id] || ""
   }));
 }
 
@@ -989,6 +1135,15 @@ function createOccurrence(task, date) {
 
 function toggleOccurrence(id) {
   state.completions[id] = state.completions[id] === "done" ? "pending" : "done";
+  if (state.completions[id] === "done") delete state.snoozes[id];
+  saveState();
+  render();
+}
+
+function snoozeOccurrence(id, minutes) {
+  const snoozeAt = addMinutes(new Date(), minutes);
+  state.snoozes[id] = `${toISODate(snoozeAt)}T${timeString(snoozeAt)}`;
+  notifiedKeys.delete(`${id}:snooze:${timeString(snoozeAt)}`);
   saveState();
   render();
 }
@@ -1070,9 +1225,27 @@ function toISODate(date) {
   return `${year}-${month}-${day}`;
 }
 
+function timeString(date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function parseISODate(value) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function addMinutes(date, amount) {
+  const next = new Date(date);
+  next.setMinutes(next.getMinutes() + amount);
+  return next;
+}
+
+function snoozeLabel(value) {
+  if (!value) return "";
+  const [date, time] = value.split("T");
+  if (!date || !time) return "";
+  const label = date === todayISO() ? time : `${formatShortDate(date)} ${time}`;
+  return t("snoozedUntil", { time: label });
 }
 
 function addDays(dateISO, amount) {

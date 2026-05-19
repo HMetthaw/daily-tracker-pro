@@ -109,7 +109,7 @@ button {
 
 .card,
 .task-card,
-.occurrence {
+.occurrence-card {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -192,6 +192,7 @@ button {
   padding: 13px;
   color: var(--text);
   text-align: left;
+  background: transparent;
 }
 
 .occurrence span:first-child {
@@ -216,6 +217,19 @@ button {
 .occurrence.done strong {
   color: var(--muted);
   text-decoration: line-through;
+}
+
+.snooze-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 13px 13px 49px;
+}
+
+.snooze-row button {
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .day-card {
@@ -663,6 +677,10 @@ button {
 .form-actions {
   display: flex;
   gap: 10px;
+}
+
+.settings-actions {
+  margin-top: 12px;
 }
 
 .form-actions button {
