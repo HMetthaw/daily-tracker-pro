@@ -24,6 +24,9 @@ const translations = {
     cancel: "Zrušit",
     delete: "Smazat",
     dailyProgress: "Denní progres",
+    nextTask: "Další úkol",
+    fullDay: "Celý den",
+    nextTaskEmpty: "Na dnes už nemáš žádný další úkol.",
     streak: "Streak",
     completedOf: "{completed} z {total}",
     todayEmpty: "Na dnešek zatím nic nemáš.",
@@ -73,7 +76,8 @@ const translations = {
     snooze15: "15 min",
     snooze30: "30 min",
     snooze60: "1 h",
-    snoozedUntil: "Znovu v {time}"
+    snoozedUntil: "Znovu v {time}",
+    notToday: "Ne dnes"
     ,
     projects: "Projekty",
     addProject: "Přidat projekt",
@@ -117,6 +121,9 @@ const translations = {
     cancel: "Cancel",
     delete: "Delete",
     dailyProgress: "Daily progress",
+    nextTask: "Next task",
+    fullDay: "Full day",
+    nextTaskEmpty: "No next task left for today.",
     streak: "Streak",
     completedOf: "{completed} of {total}",
     todayEmpty: "Nothing planned for today yet.",
@@ -167,6 +174,7 @@ const translations = {
     snooze30: "30 min",
     snooze60: "1 h",
     snoozedUntil: "Again at {time}",
+    notToday: "Not today",
     projects: "Projects",
     addProject: "Add project",
     projectName: "Project name",
@@ -232,7 +240,8 @@ function defaultState() {
     tasks: [],
     completions: {},
     snoozes: {},
-    settings: { language: "cs", theme: "light", notifications: "default" }
+    skips: {},
+    settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
   };
 }
 
@@ -251,6 +260,10 @@ function normalizeState(value) {
       source.snoozes && typeof source.snoozes === "object" && !Array.isArray(source.snoozes)
         ? source.snoozes
         : fallback.snoozes,
+    skips:
+      source.skips && typeof source.skips === "object" && !Array.isArray(source.skips)
+        ? source.skips
+        : fallback.skips,
     settings: { ...fallback.settings, ...settings }
   };
 }
@@ -296,11 +309,24 @@ function renderToday() {
   const today = todayISO();
   const occurrences = hydratedOccurrencesForWeek(today).filter((item) => item.date === today);
   const stats = completionStats(occurrences);
+  const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done");
+  const showNext = state.settings.todayMode !== "full";
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
+    <article class="card today-mode-card">
+      <div class="segmented">
+        ${renderSegment("todayMode", "next", t("nextTask"))}
+        ${renderSegment("todayMode", "full", t("fullDay"))}
+      </div>
+    </article>
     <button class="secondary full" data-action="new-onetime">+ ${t("addOneTimeToday")}</button>
-    ${occurrences.length ? occurrences.map(renderOccurrence).join("") : renderEmpty(t("todayEmpty"))}
+    ${showNext ? renderNextTask(nextOccurrence, occurrences.length) : occurrences.length ? occurrences.map((occurrence) => renderOccurrence(occurrence, false)).join("") : renderEmpty(t("todayEmpty"))}
   `;
+}
+
+function renderNextTask(nextOccurrence, total) {
+  if (nextOccurrence) return renderOccurrence(nextOccurrence, true);
+  return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
 }
 
 function renderWeek() {
@@ -320,7 +346,7 @@ function renderWeek() {
             <button class="day-add" data-add-onetime-date="${date}" aria-label="${t("addForDay")}">+</button>
           </div>
           ${renderMeter(stats.percent)}
-          ${items.map(renderOccurrence).join("")}
+          ${items.map((occurrence) => renderOccurrence(occurrence, false)).join("")}
         </article>
       `;
     })
@@ -517,7 +543,7 @@ function renderProgressCard(title, stats) {
   `;
 }
 
-function renderOccurrence(occurrence) {
+function renderOccurrence(occurrence, showActions = true) {
   const done = occurrence.status === "done";
   return `
     <article class="occurrence-card">
@@ -528,7 +554,7 @@ function renderOccurrence(occurrence) {
           <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
         </span>
       </button>
-      ${done ? "" : renderSnoozeActions(occurrence)}
+      ${!showActions || done ? "" : renderSnoozeActions(occurrence)}
     </article>
   `;
 }
@@ -536,6 +562,7 @@ function renderOccurrence(occurrence) {
 function renderSnoozeActions(occurrence) {
   return `
     <div class="snooze-row" aria-label="${t("snooze")}">
+      <button class="secondary" data-not-today-occurrence="${occurrence.id}">${t("notToday")}</button>
       <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="15">${t("snooze15")}</button>
       <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="30">${t("snooze30")}</button>
       <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="60">${t("snooze60")}</button>
@@ -683,6 +710,9 @@ function bindEvents() {
     button.addEventListener("click", () => {
       snoozeOccurrence(button.dataset.snoozeOccurrence, Number(button.dataset.snoozeMinutes));
     });
+  });
+  document.querySelectorAll("[data-not-today-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => notTodayOccurrence(button.dataset.notTodayOccurrence));
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
@@ -1189,11 +1219,13 @@ function checkReminders() {
 }
 
 function hydratedOccurrencesForWeek(dateISO) {
-  return occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO).map((occurrence) => ({
-    ...occurrence,
-    status: state.completions[occurrence.id] || occurrence.status,
-    snoozeAt: state.snoozes[occurrence.id] || ""
-  }));
+  return occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO)
+    .filter((occurrence) => !state.skips[occurrence.id])
+    .map((occurrence) => ({
+      ...occurrence,
+      status: state.completions[occurrence.id] || occurrence.status,
+      snoozeAt: state.snoozes[occurrence.id] || ""
+    }));
 }
 
 function occurrencesForWeek(tasks, dateISO) {
@@ -1238,9 +1270,28 @@ function createOccurrence(task, date) {
   };
 }
 
+function splitOccurrenceId(id) {
+  const separator = id.lastIndexOf(":");
+  return [id.slice(0, separator), id.slice(separator + 1)];
+}
+
 function toggleOccurrence(id) {
   state.completions[id] = state.completions[id] === "done" ? "pending" : "done";
   if (state.completions[id] === "done") delete state.snoozes[id];
+  saveState();
+  render();
+}
+
+function notTodayOccurrence(id) {
+  const [taskId, date] = splitOccurrenceId(id);
+  const task = state.tasks.find((item) => item.id === taskId);
+  delete state.completions[id];
+  delete state.snoozes[id];
+  if (task?.type === "oneTime") {
+    task.date = addDays(date, 1);
+  } else {
+    state.skips[id] = true;
+  }
   saveState();
   render();
 }
