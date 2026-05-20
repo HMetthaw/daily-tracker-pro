@@ -30,6 +30,7 @@ const translations = {
     yesterdayLeftovers: "Ze včera",
     addToday: "Přidat na dnes",
     addTodayHint: "Vyber čas, kdy se ti tenhle úkol hodí dnes.",
+    dismiss: "Ne",
     nextTask: "Další úkol",
     fullDay: "Celý den",
     nextTaskEmpty: "Na dnes už nemáš žádný další úkol.",
@@ -133,6 +134,7 @@ const translations = {
     yesterdayLeftovers: "From yesterday",
     addToday: "Add today",
     addTodayHint: "Choose when this task fits today.",
+    dismiss: "No",
     nextTask: "Next task",
     fullDay: "Full day",
     nextTaskEmpty: "No next task left for today.",
@@ -372,7 +374,10 @@ function renderLeftover(occurrence) {
         <strong>${escapeHtml(occurrence.title)}</strong>
         <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
       </span>
-      <button class="secondary" data-carry-over-occurrence="${occurrence.id}">${t("addToday")}</button>
+      <span class="reset-actions">
+        <button class="secondary" data-dismiss-leftover-occurrence="${occurrence.id}">${t("dismiss")}</button>
+        <button class="secondary" data-carry-over-occurrence="${occurrence.id}">${t("addToday")}</button>
+      </span>
     </div>
   `;
 }
@@ -771,6 +776,9 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-carry-over-occurrence]").forEach((button) => {
     button.addEventListener("click", () => openCarryOverModal(button.dataset.carryOverOccurrence));
+  });
+  document.querySelectorAll("[data-dismiss-leftover-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => dismissLeftover(button.dataset.dismissLeftoverOccurrence));
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
@@ -1373,6 +1381,15 @@ function carryOverOccurrence(occurrenceId, newTime) {
     });
   }
   saveState();
+}
+
+function dismissLeftover(occurrenceId) {
+  delete state.completions[occurrenceId];
+  delete state.snoozes[occurrenceId];
+  delete state.timeOverrides[occurrenceId];
+  state.skips[occurrenceId] = true;
+  saveState();
+  render();
 }
 
 function requestNotifications() {

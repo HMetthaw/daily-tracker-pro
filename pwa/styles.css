@@ -167,6 +167,11 @@ button {
   white-space: nowrap;
 }
 
+.reset-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .progress-card .big {
   color: var(--primary);
   font-size: 44px;
