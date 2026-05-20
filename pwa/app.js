@@ -15,6 +15,9 @@ const translations = {
     taskName: "Název úkolu",
     reminder: "Připomínka",
     noReminder: "Bez času",
+    moveTask: "Přesunout úkol",
+    newTime: "Nový čas",
+    moveTaskHint: "Nastav nový čas pro tento výskyt úkolu.",
     recurring: "Opakovaný",
     oneTime: "Jednorázový",
     weeklyDays: "Dny v týdnu",
@@ -24,6 +27,9 @@ const translations = {
     cancel: "Zrušit",
     delete: "Smazat",
     dailyProgress: "Denní progres",
+    yesterdayLeftovers: "Ze včera",
+    addToday: "Přidat na dnes",
+    addTodayHint: "Vyber čas, kdy se ti tenhle úkol hodí dnes.",
     nextTask: "Další úkol",
     fullDay: "Celý den",
     nextTaskEmpty: "Na dnes už nemáš žádný další úkol.",
@@ -112,6 +118,9 @@ const translations = {
     taskName: "Task name",
     reminder: "Reminder",
     noReminder: "No time",
+    moveTask: "Move task",
+    newTime: "New time",
+    moveTaskHint: "Set a new time for this task occurrence.",
     recurring: "Recurring",
     oneTime: "One-time",
     weeklyDays: "Weekdays",
@@ -121,6 +130,9 @@ const translations = {
     cancel: "Cancel",
     delete: "Delete",
     dailyProgress: "Daily progress",
+    yesterdayLeftovers: "From yesterday",
+    addToday: "Add today",
+    addTodayHint: "Choose when this task fits today.",
     nextTask: "Next task",
     fullDay: "Full day",
     nextTaskEmpty: "No next task left for today.",
@@ -203,6 +215,8 @@ let currentScreen = "today";
 let currentPlanMonth = startOfMonthISO(todayISO());
 let editingTaskId = null;
 let notifiedKeys = new Set();
+let dragState = null;
+let suppressOccurrenceClickId = null;
 
 const app = document.querySelector("#app");
 
@@ -241,6 +255,7 @@ function defaultState() {
     completions: {},
     snoozes: {},
     skips: {},
+    timeOverrides: {},
     settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
   };
 }
@@ -264,6 +279,10 @@ function normalizeState(value) {
       source.skips && typeof source.skips === "object" && !Array.isArray(source.skips)
         ? source.skips
         : fallback.skips,
+    timeOverrides:
+      source.timeOverrides && typeof source.timeOverrides === "object" && !Array.isArray(source.timeOverrides)
+        ? source.timeOverrides
+        : fallback.timeOverrides,
     settings: { ...fallback.settings, ...settings }
   };
 }
@@ -308,11 +327,13 @@ function renderScreen() {
 function renderToday() {
   const today = todayISO();
   const occurrences = hydratedOccurrencesForWeek(today).filter((item) => item.date === today);
+  const leftovers = yesterdayLeftovers();
   const stats = completionStats(occurrences);
   const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done");
   const showNext = state.settings.todayMode !== "full";
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
+    ${renderYesterdayReset(leftovers)}
     <article class="card today-mode-card">
       <div class="segmented">
         ${renderSegment("todayMode", "next", t("nextTask"))}
@@ -320,13 +341,40 @@ function renderToday() {
       </div>
     </article>
     <button class="secondary full" data-action="new-onetime">+ ${t("addOneTimeToday")}</button>
-    ${showNext ? renderNextTask(nextOccurrence, occurrences.length) : occurrences.length ? occurrences.map((occurrence) => renderOccurrence(occurrence, false)).join("") : renderEmpty(t("todayEmpty"))}
+    ${showNext ? renderNextTask(nextOccurrence, occurrences.length) : occurrences.length ? occurrences.map((occurrence) => renderOccurrence(occurrence, false, true)).join("") : renderEmpty(t("todayEmpty"))}
   `;
 }
 
 function renderNextTask(nextOccurrence, total) {
   if (nextOccurrence) return renderOccurrence(nextOccurrence, true);
   return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
+}
+
+function yesterdayLeftovers() {
+  const yesterday = addDays(todayISO(), -1);
+  return hydratedOccurrencesForWeek(yesterday).filter((occurrence) => occurrence.date === yesterday && occurrence.status !== "done");
+}
+
+function renderYesterdayReset(leftovers) {
+  if (!leftovers.length) return "";
+  return `
+    <article class="card reset-card">
+      <h2>${t("yesterdayLeftovers")}</h2>
+      ${leftovers.map(renderLeftover).join("")}
+    </article>
+  `;
+}
+
+function renderLeftover(occurrence) {
+  return `
+    <div class="reset-row">
+      <span>
+        <strong>${escapeHtml(occurrence.title)}</strong>
+        <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
+      </span>
+      <button class="secondary" data-carry-over-occurrence="${occurrence.id}">${t("addToday")}</button>
+    </div>
+  `;
 }
 
 function renderWeek() {
@@ -337,7 +385,7 @@ function renderWeek() {
       const items = occurrences.filter((item) => item.date === date);
       const stats = completionStats(items);
       return `
-        <article class="card day-card">
+        <article class="card day-card" data-day-date="${date}">
           <div class="day-card-head">
             <div>
               <strong>${t(dayLabelKeys(weekdayKey(date)))} ${formatShortDate(date)}</strong>
@@ -346,7 +394,7 @@ function renderWeek() {
             <button class="day-add" data-add-onetime-date="${date}" aria-label="${t("addForDay")}">+</button>
           </div>
           ${renderMeter(stats.percent)}
-          ${items.map((occurrence) => renderOccurrence(occurrence, false)).join("")}
+          ${items.map((occurrence) => renderOccurrence(occurrence, false, true)).join("")}
         </article>
       `;
     })
@@ -543,10 +591,10 @@ function renderProgressCard(title, stats) {
   `;
 }
 
-function renderOccurrence(occurrence, showActions = true) {
+function renderOccurrence(occurrence, showActions = true, draggable = false) {
   const done = occurrence.status === "done";
   return `
-    <article class="occurrence-card">
+    <article class="occurrence-card ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${occurrence.id}" data-occurrence-date="${occurrence.date}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
       <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
         <span>${done ? "●" : "○"}</span>
         <span>
@@ -704,8 +752,15 @@ function bindEvents() {
     });
   });
   document.querySelectorAll("[data-occurrence]").forEach((button) => {
-    button.addEventListener("click", () => toggleOccurrence(button.dataset.occurrence));
+    button.addEventListener("click", () => {
+      if (suppressOccurrenceClickId === button.dataset.occurrence) {
+        suppressOccurrenceClickId = null;
+        return;
+      }
+      toggleOccurrence(button.dataset.occurrence);
+    });
   });
+  bindOccurrenceDragEvents();
   document.querySelectorAll("[data-snooze-occurrence]").forEach((button) => {
     button.addEventListener("click", () => {
       snoozeOccurrence(button.dataset.snoozeOccurrence, Number(button.dataset.snoozeMinutes));
@@ -713,6 +768,9 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-not-today-occurrence]").forEach((button) => {
     button.addEventListener("click", () => notTodayOccurrence(button.dataset.notTodayOccurrence));
+  });
+  document.querySelectorAll("[data-carry-over-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => openCarryOverModal(button.dataset.carryOverOccurrence));
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
@@ -767,6 +825,79 @@ function bindEvents() {
       render();
     });
   });
+}
+
+function bindOccurrenceDragEvents() {
+  document.querySelectorAll("[data-draggable-occurrence]").forEach((card) => {
+    card.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".snooze-row")) return;
+      const occurrenceId = card.dataset.occurrenceCard;
+      dragState = {
+        card,
+        occurrenceId,
+        sourceDate: card.dataset.occurrenceDate,
+        startX: event.clientX,
+        startY: event.clientY,
+        latestX: event.clientX,
+        latestY: event.clientY,
+        dragging: false,
+        timer: window.setTimeout(() => startOccurrenceDrag(), 280)
+      };
+      window.addEventListener("pointermove", trackOccurrenceDrag);
+      window.addEventListener("pointerup", finishOccurrenceDrag, { once: true });
+      window.addEventListener("pointercancel", cancelOccurrenceDrag, { once: true });
+    });
+  });
+}
+
+function startOccurrenceDrag() {
+  if (!dragState) return;
+  dragState.dragging = true;
+  suppressOccurrenceClickId = dragState.occurrenceId;
+  dragState.card.classList.add("dragging");
+  document.body.classList.add("dragging-occurrence");
+}
+
+function trackOccurrenceDrag(event) {
+  if (!dragState) return;
+  dragState.latestX = event.clientX;
+  dragState.latestY = event.clientY;
+  if (dragState.dragging) event.preventDefault();
+  if (!dragState.dragging && distanceBetween(dragState.startX, dragState.startY, event.clientX, event.clientY) > 10) {
+    clearTimeout(dragState.timer);
+  }
+}
+
+function finishOccurrenceDrag(event) {
+  if (!dragState) return;
+  clearTimeout(dragState.timer);
+  window.removeEventListener("pointermove", trackOccurrenceDrag);
+  const currentDrag = dragState;
+  dragState = null;
+  document.body.classList.remove("dragging-occurrence");
+  currentDrag.card.classList.remove("dragging");
+  if (!currentDrag.dragging) return;
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  const targetDate = target?.closest("[data-day-date]")?.dataset.dayDate || target?.closest("[data-occurrence-card]")?.dataset.occurrenceDate;
+  if (targetDate === currentDrag.sourceDate) {
+    openRescheduleModal(currentDrag.occurrenceId);
+  }
+  window.setTimeout(() => {
+    if (suppressOccurrenceClickId === currentDrag.occurrenceId) suppressOccurrenceClickId = null;
+  }, 600);
+}
+
+function cancelOccurrenceDrag() {
+  if (!dragState) return;
+  clearTimeout(dragState.timer);
+  window.removeEventListener("pointermove", trackOccurrenceDrag);
+  dragState.card.classList.remove("dragging");
+  document.body.classList.remove("dragging-occurrence");
+  dragState = null;
+}
+
+function distanceBetween(startX, startY, endX, endY) {
+  return Math.hypot(endX - startX, endY - startY);
 }
 
 function openProjectModal() {
@@ -1125,6 +1256,125 @@ function closeModal() {
   editingTaskId = null;
 }
 
+function openRescheduleModal(occurrenceId) {
+  const occurrence = findOccurrence(occurrenceId);
+  if (!occurrence) return;
+  document.querySelector("#modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <form class="modal-card" id="reschedule-form">
+        <h2>${t("moveTask")}</h2>
+        <p class="muted">${escapeHtml(occurrence.title)}</p>
+        <label class="date-row">
+          <span>${t("newTime")}</span>
+          <input name="time" type="time" value="${occurrence.startTime || occurrence.reminderTime || "08:00"}" />
+        </label>
+        <p class="muted">${t("moveTaskHint")}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary" data-close>${t("cancel")}</button>
+          <button type="submit" class="primary">${t("save")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = document.querySelector("#reschedule-form");
+  form.elements.time.focus();
+  form.querySelector("[data-close]").addEventListener("click", closeModal);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveOccurrenceTime(occurrenceId, form.elements.time.value || "08:00");
+    closeModal();
+    render();
+  });
+}
+
+function openCarryOverModal(occurrenceId) {
+  const occurrence = findOccurrence(occurrenceId);
+  if (!occurrence) return;
+  document.querySelector("#modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <form class="modal-card" id="carry-over-form">
+        <h2>${t("addToday")}</h2>
+        <p class="muted">${escapeHtml(occurrence.title)}</p>
+        <label class="date-row">
+          <span>${t("newTime")}</span>
+          <input name="time" type="time" value="${occurrence.startTime || occurrence.reminderTime || "08:00"}" />
+        </label>
+        <p class="muted">${t("addTodayHint")}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary" data-close>${t("cancel")}</button>
+          <button type="submit" class="primary">${t("save")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = document.querySelector("#carry-over-form");
+  form.elements.time.focus();
+  form.querySelector("[data-close]").addEventListener("click", closeModal);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    carryOverOccurrence(occurrenceId, form.elements.time.value || "08:00");
+    closeModal();
+    render();
+  });
+}
+
+function saveOccurrenceTime(occurrenceId, newTime) {
+  const occurrence = findOccurrence(occurrenceId);
+  if (!occurrence) return;
+  const task = state.tasks.find((item) => item.id === occurrence.taskId);
+  const endTime = shiftedEndTime(occurrence.startTime || occurrence.reminderTime, occurrence.endTime, newTime);
+  delete state.snoozes[occurrenceId];
+  if (task?.type === "oneTime") {
+    task.startTime = task.startTime || occurrence.startTime ? newTime : "";
+    task.endTime = endTime;
+    task.reminderTime = newTime;
+  } else {
+    state.timeOverrides[occurrenceId] = {
+      startTime: newTime,
+      endTime,
+      reminderTime: newTime
+    };
+  }
+  saveState();
+}
+
+function carryOverOccurrence(occurrenceId, newTime) {
+  const occurrence = findOccurrence(occurrenceId);
+  if (!occurrence) return;
+  const task = state.tasks.find((item) => item.id === occurrence.taskId);
+  if (!task) return;
+  const endTime = shiftedEndTime(occurrence.startTime || occurrence.reminderTime, occurrence.endTime, newTime);
+  delete state.completions[occurrenceId];
+  delete state.snoozes[occurrenceId];
+  delete state.timeOverrides[occurrenceId];
+  if (task.type === "oneTime") {
+    task.date = todayISO();
+    task.startTime = task.startTime || occurrence.startTime || occurrence.endTime ? newTime : "";
+    task.endTime = endTime;
+    task.reminderTime = newTime;
+  } else {
+    state.skips[occurrenceId] = true;
+    state.tasks.push({
+      id: String(Date.now()),
+      title: occurrence.title,
+      type: "oneTime",
+      projectId: occurrence.projectId || "",
+      daysOfWeek: [],
+      date: todayISO(),
+      startTime: occurrence.startTime || occurrence.endTime ? newTime : "",
+      endTime,
+      reminderTime: newTime,
+      active: true,
+      sourceTaskId: task.id,
+      sourceOccurrenceId: occurrenceId,
+      createdAt: new Date().toISOString()
+    });
+  }
+  saveState();
+}
+
 function requestNotifications() {
   if (!("Notification" in window)) return;
   Notification.requestPermission().then((permission) => {
@@ -1221,11 +1471,23 @@ function checkReminders() {
 function hydratedOccurrencesForWeek(dateISO) {
   return occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO)
     .filter((occurrence) => !state.skips[occurrence.id])
-    .map((occurrence) => ({
-      ...occurrence,
-      status: state.completions[occurrence.id] || occurrence.status,
-      snoozeAt: state.snoozes[occurrence.id] || ""
-    }));
+    .map(hydrateOccurrence)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.reminderTime || "99:99").localeCompare(b.reminderTime || "99:99"));
+}
+
+function hydrateOccurrence(occurrence) {
+  const override = state.timeOverrides[occurrence.id] || {};
+  return {
+    ...occurrence,
+    ...override,
+    status: state.completions[occurrence.id] || occurrence.status,
+    snoozeAt: state.snoozes[occurrence.id] || ""
+  };
+}
+
+function findOccurrence(occurrenceId) {
+  const [, date] = splitOccurrenceId(occurrenceId);
+  return hydratedOccurrencesForWeek(date).find((occurrence) => occurrence.id === occurrenceId);
 }
 
 function occurrencesForWeek(tasks, dateISO) {
@@ -1383,6 +1645,24 @@ function toISODate(date) {
 
 function timeString(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function shiftedEndTime(oldStart, oldEnd, newStart) {
+  if (!oldStart || !oldEnd) return oldEnd || "";
+  const duration = minutesFromTime(oldEnd) - minutesFromTime(oldStart);
+  if (duration <= 0) return oldEnd;
+  return timeFromMinutes(minutesFromTime(newStart) + duration);
+}
+
+function minutesFromTime(value) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function timeFromMinutes(value) {
+  const minutesInDay = 24 * 60;
+  const normalized = ((value % minutesInDay) + minutesInDay) % minutesInDay;
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
 }
 
 function parseISODate(value) {

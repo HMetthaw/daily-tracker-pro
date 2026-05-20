@@ -132,6 +132,41 @@ button {
   padding: 8px;
 }
 
+.reset-card {
+  display: grid;
+  gap: 10px;
+}
+
+.reset-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.reset-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.reset-row strong,
+.reset-row small {
+  display: block;
+}
+
+.reset-row small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.reset-row button {
+  min-height: 36px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .progress-card .big {
   color: var(--primary);
   font-size: 44px;
@@ -221,6 +256,21 @@ button {
 .occurrence.done strong {
   color: var(--muted);
   text-decoration: line-through;
+}
+
+.draggable-occurrence {
+  touch-action: pan-y;
+}
+
+.draggable-occurrence.dragging {
+  border-color: var(--primary);
+  box-shadow: 0 8px 22px rgba(15, 118, 110, 0.18);
+  opacity: 0.78;
+  transform: scale(0.99);
+}
+
+body.dragging-occurrence .day-card {
+  border-color: var(--primary);
 }
 
 .snooze-row {
