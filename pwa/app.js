@@ -329,8 +329,9 @@ function renderScreen() {
 function renderToday() {
   const today = todayISO();
   const occurrences = hydratedOccurrencesForWeek(today).filter((item) => item.date === today);
+  const countedOccurrences = hydratedOccurrencesForWeek(today, { includeHidden: true }).filter((item) => item.date === today);
   const leftovers = yesterdayLeftovers();
-  const stats = completionStats(occurrences);
+  const stats = completionStats(countedOccurrences);
   const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done");
   const showNext = state.settings.todayMode !== "full";
   return `
@@ -385,10 +386,11 @@ function renderLeftover(occurrence) {
 function renderWeek() {
   const dates = weekDates(todayISO());
   const occurrences = hydratedOccurrencesForWeek(todayISO());
+  const countedOccurrences = hydratedOccurrencesForWeek(todayISO(), { includeHidden: true });
   return dates
     .map((date) => {
       const items = occurrences.filter((item) => item.date === date);
-      const stats = completionStats(items);
+      const stats = completionStats(countedOccurrences.filter((item) => item.date === date));
       return `
         <article class="card day-card" data-day-date="${date}">
           <div class="day-card-head">
@@ -505,7 +507,7 @@ function renderRecap() {
 function recapOccurrences() {
   const dates = recapWindowDates();
   const baseDate = dates[dates.length - 1] || todayISO();
-  return hydratedOccurrencesForWeek(baseDate).filter((occurrence) => dates.includes(occurrence.date));
+  return hydratedOccurrencesForWeek(baseDate, { includeHidden: true }).filter((occurrence) => dates.includes(occurrence.date));
 }
 
 function recapWindowDates() {
@@ -1485,11 +1487,11 @@ function checkReminders() {
   }
 }
 
-function hydratedOccurrencesForWeek(dateISO) {
-  return occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO)
-    .filter((occurrence) => !state.skips[occurrence.id])
+function hydratedOccurrencesForWeek(dateISO, { includeHidden = false } = {}) {
+  const occurrences = occurrencesForWeek(state.tasks.filter((task) => task.active !== false), dateISO)
     .map(hydrateOccurrence)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.reminderTime || "99:99").localeCompare(b.reminderTime || "99:99"));
+  return includeHidden ? occurrences : occurrences.filter((occurrence) => !state.skips[occurrence.id]);
 }
 
 function hydrateOccurrence(occurrence) {
@@ -1593,7 +1595,7 @@ function calculateStreak() {
   let streak = 0;
   let cursor = todayISO();
   for (let index = 0; index < 30; index += 1) {
-    const stats = completionStats(hydratedOccurrencesForWeek(cursor).filter((item) => item.date === cursor));
+    const stats = completionStats(hydratedOccurrencesForWeek(cursor, { includeHidden: true }).filter((item) => item.date === cursor));
     if (!stats.total || stats.percent < STREAK_THRESHOLD) break;
     streak += 1;
     cursor = addDays(cursor, -1);
