@@ -337,7 +337,7 @@ function renderToday() {
   const countedOccurrences = hydratedOccurrencesForWeek(today, { includeHidden: true }).filter((item) => item.date === today);
   const leftovers = yesterdayLeftovers();
   const stats = completionStats(countedOccurrences);
-  const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done" && !state.nextTaskSkips[occurrence.id]);
+  const nextOccurrence = nextTaskOccurrences(occurrences)[0];
   const showNext = state.settings.todayMode !== "full";
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
@@ -356,6 +356,16 @@ function renderToday() {
 function renderNextTask(nextOccurrence, total) {
   if (nextOccurrence) return renderOccurrence(nextOccurrence, true);
   return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
+}
+
+function nextTaskOccurrences(occurrences) {
+  return occurrences
+    .filter((occurrence) => occurrence.status !== "done" && !state.nextTaskSkips[occurrence.id])
+    .sort((a, b) => nextTaskTime(a).localeCompare(nextTaskTime(b)));
+}
+
+function nextTaskTime(occurrence) {
+  return occurrence.snoozeAt || `${occurrence.date}T${occurrence.reminderTime || "99:99"}`;
 }
 
 function yesterdayLeftovers() {
