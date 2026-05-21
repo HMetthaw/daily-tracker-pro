@@ -264,7 +264,7 @@ button {
 }
 
 .draggable-occurrence {
-  touch-action: pan-y;
+  touch-action: none;
 }
 
 .draggable-occurrence.dragging {

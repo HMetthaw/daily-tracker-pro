@@ -16,8 +16,9 @@ const translations = {
     reminder: "Připomínka",
     noReminder: "Bez času",
     moveTask: "Přesunout úkol",
+    newDate: "Nový den",
     newTime: "Nový čas",
-    moveTaskHint: "Nastav nový čas pro tento výskyt úkolu.",
+    moveTaskHint: "Nastav nový den a čas pro tento výskyt úkolu.",
     recurring: "Opakovaný",
     oneTime: "Jednorázový",
     weeklyDays: "Dny v týdnu",
@@ -120,8 +121,9 @@ const translations = {
     reminder: "Reminder",
     noReminder: "No time",
     moveTask: "Move task",
+    newDate: "New day",
     newTime: "New time",
-    moveTaskHint: "Set a new time for this task occurrence.",
+    moveTaskHint: "Set a new day and time for this task occurrence.",
     recurring: "Recurring",
     oneTime: "One-time",
     weeklyDays: "Weekdays",
@@ -904,9 +906,7 @@ function finishOccurrenceDrag(event) {
   if (!currentDrag.dragging) return;
   const target = document.elementFromPoint(event.clientX, event.clientY);
   const targetDate = target?.closest("[data-day-date]")?.dataset.dayDate || target?.closest("[data-occurrence-card]")?.dataset.occurrenceDate;
-  if (targetDate === currentDrag.sourceDate) {
-    openRescheduleModal(currentDrag.occurrenceId);
-  }
+  openRescheduleModal(currentDrag.occurrenceId, targetDate || currentDrag.sourceDate);
   window.setTimeout(() => {
     if (suppressOccurrenceClickId === currentDrag.occurrenceId) suppressOccurrenceClickId = null;
   }, 600);
@@ -1281,14 +1281,19 @@ function closeModal() {
   editingTaskId = null;
 }
 
-function openRescheduleModal(occurrenceId) {
+function openRescheduleModal(occurrenceId, targetDate = null) {
   const occurrence = findOccurrence(occurrenceId);
   if (!occurrence) return;
+  const defaultDate = targetDate || occurrence.date;
   document.querySelector("#modal-root").innerHTML = `
     <div class="modal-backdrop">
       <form class="modal-card" id="reschedule-form">
         <h2>${t("moveTask")}</h2>
         <p class="muted">${escapeHtml(occurrence.title)}</p>
+        <label class="date-row">
+          <span>${t("newDate")}</span>
+          <input name="date" type="date" value="${defaultDate}" />
+        </label>
         <label class="date-row">
           <span>${t("newTime")}</span>
           <input name="time" type="time" value="${occurrence.startTime || occurrence.reminderTime || "08:00"}" />
@@ -1303,11 +1308,11 @@ function openRescheduleModal(occurrenceId) {
   `;
 
   const form = document.querySelector("#reschedule-form");
-  form.elements.time.focus();
+  form.elements.date.focus();
   form.querySelector("[data-close]").addEventListener("click", closeModal);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    saveOccurrenceTime(occurrenceId, form.elements.time.value || "08:00");
+    saveOccurrenceSchedule(occurrenceId, form.elements.date.value || occurrence.date, form.elements.time.value || "08:00");
     closeModal();
     render();
   });
@@ -1361,6 +1366,49 @@ function saveOccurrenceTime(occurrenceId, newTime) {
       endTime,
       reminderTime: newTime
     };
+  }
+  saveState();
+}
+
+function saveOccurrenceSchedule(occurrenceId, newDate, newTime) {
+  const occurrence = findOccurrence(occurrenceId);
+  if (!occurrence) return;
+  if (!newDate || newDate === occurrence.date) {
+    saveOccurrenceTime(occurrenceId, newTime);
+    return;
+  }
+
+  const task = state.tasks.find((item) => item.id === occurrence.taskId);
+  if (!task) return;
+  const endTime = shiftedEndTime(occurrence.startTime || occurrence.reminderTime, occurrence.endTime, newTime);
+
+  delete state.completions[occurrenceId];
+  delete state.snoozes[occurrenceId];
+  delete state.nextTaskSkips[occurrenceId];
+  delete state.timeOverrides[occurrenceId];
+
+  if (task.type === "oneTime") {
+    task.date = newDate;
+    task.startTime = task.startTime || occurrence.startTime || occurrence.endTime ? newTime : "";
+    task.endTime = endTime;
+    task.reminderTime = newTime;
+  } else {
+    state.skips[occurrenceId] = true;
+    state.tasks.push({
+      id: String(Date.now()),
+      title: occurrence.title,
+      type: "oneTime",
+      projectId: occurrence.projectId || "",
+      daysOfWeek: [],
+      date: newDate,
+      startTime: occurrence.startTime || occurrence.endTime ? newTime : "",
+      endTime,
+      reminderTime: newTime,
+      active: true,
+      sourceTaskId: task.id,
+      sourceOccurrenceId: occurrenceId,
+      createdAt: new Date().toISOString()
+    });
   }
   saveState();
 }
