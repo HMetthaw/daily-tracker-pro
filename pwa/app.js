@@ -1593,11 +1593,7 @@ function calculateStreak() {
   let streak = 0;
   let cursor = todayISO();
   for (let index = 0; index < 30; index += 1) {
-    const activeTasks = state.tasks.filter((task) => task.active !== false);
-    const stats = completionStats(occurrencesForWeek(activeTasks, cursor).filter((item) => item.date === cursor).map((item) => ({
-      ...item,
-      status: state.completions[item.id] || item.status
-    })));
+    const stats = completionStats(hydratedOccurrencesForWeek(cursor).filter((item) => item.date === cursor));
     if (!stats.total || stats.percent < STREAK_THRESHOLD) break;
     streak += 1;
     cursor = addDays(cursor, -1);
