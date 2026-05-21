@@ -257,6 +257,7 @@ function defaultState() {
     completions: {},
     snoozes: {},
     skips: {},
+    nextTaskSkips: {},
     timeOverrides: {},
     settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
   };
@@ -281,6 +282,10 @@ function normalizeState(value) {
       source.skips && typeof source.skips === "object" && !Array.isArray(source.skips)
         ? source.skips
         : fallback.skips,
+    nextTaskSkips:
+      source.nextTaskSkips && typeof source.nextTaskSkips === "object" && !Array.isArray(source.nextTaskSkips)
+        ? source.nextTaskSkips
+        : fallback.nextTaskSkips,
     timeOverrides:
       source.timeOverrides && typeof source.timeOverrides === "object" && !Array.isArray(source.timeOverrides)
         ? source.timeOverrides
@@ -332,7 +337,7 @@ function renderToday() {
   const countedOccurrences = hydratedOccurrencesForWeek(today, { includeHidden: true }).filter((item) => item.date === today);
   const leftovers = yesterdayLeftovers();
   const stats = completionStats(countedOccurrences);
-  const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done");
+  const nextOccurrence = occurrences.find((occurrence) => occurrence.status !== "done" && !state.nextTaskSkips[occurrence.id]);
   const showNext = state.settings.todayMode !== "full";
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
@@ -1467,6 +1472,7 @@ function checkReminders() {
   const currentDate = toISODate(now);
   const currentTime = timeString(now);
   for (const occurrence of hydratedOccurrencesForWeek(currentDate)) {
+    if (state.nextTaskSkips[occurrence.id]) continue;
     const key = `${occurrence.id}:${currentTime}`;
     if (occurrence.date === currentDate && occurrence.reminderTime === currentTime && !notifiedKeys.has(key)) {
       notifiedKeys.add(key);
@@ -1564,15 +1570,9 @@ function toggleOccurrence(id) {
 }
 
 function notTodayOccurrence(id) {
-  const [taskId, date] = splitOccurrenceId(id);
-  const task = state.tasks.find((item) => item.id === taskId);
   delete state.completions[id];
   delete state.snoozes[id];
-  if (task?.type === "oneTime") {
-    task.date = addDays(date, 1);
-  } else {
-    state.skips[id] = true;
-  }
+  state.nextTaskSkips[id] = true;
   saveState();
   render();
 }
