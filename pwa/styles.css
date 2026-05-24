@@ -265,13 +265,24 @@ button {
 
 .draggable-occurrence {
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.draggable-occurrence * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .draggable-occurrence.dragging {
   border-color: var(--primary);
   box-shadow: 0 8px 22px rgba(15, 118, 110, 0.18);
+  position: relative;
+  z-index: 30;
   opacity: 0.78;
-  transform: scale(0.99);
+  pointer-events: none;
 }
 
 body.dragging-occurrence .day-card {

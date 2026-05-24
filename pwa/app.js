@@ -867,13 +867,21 @@ function bindOccurrenceDragEvents() {
         startY: event.clientY,
         latestX: event.clientX,
         latestY: event.clientY,
+        pointerId: event.pointerId,
         dragging: false,
         timer: window.setTimeout(() => startOccurrenceDrag(), 280)
       };
-      window.addEventListener("pointermove", trackOccurrenceDrag);
+      try {
+        card.setPointerCapture?.(event.pointerId);
+      } catch {
+        // Some mobile browsers expose pointer capture but reject it for touch gestures.
+      }
+      window.addEventListener("pointermove", trackOccurrenceDrag, { passive: false });
       window.addEventListener("pointerup", finishOccurrenceDrag, { once: true });
       window.addEventListener("pointercancel", cancelOccurrenceDrag, { once: true });
     });
+    card.addEventListener("contextmenu", (event) => event.preventDefault());
+    card.addEventListener("selectstart", (event) => event.preventDefault());
   });
 }
 
@@ -889,7 +897,10 @@ function trackOccurrenceDrag(event) {
   if (!dragState) return;
   dragState.latestX = event.clientX;
   dragState.latestY = event.clientY;
-  if (dragState.dragging) event.preventDefault();
+  if (dragState.dragging) {
+    event.preventDefault();
+    dragState.card.style.transform = `translate3d(${event.clientX - dragState.startX}px, ${event.clientY - dragState.startY}px, 0) scale(0.99)`;
+  }
   if (!dragState.dragging && distanceBetween(dragState.startX, dragState.startY, event.clientX, event.clientY) > 10) {
     clearTimeout(dragState.timer);
   }
@@ -901,11 +912,13 @@ function finishOccurrenceDrag(event) {
   window.removeEventListener("pointermove", trackOccurrenceDrag);
   const currentDrag = dragState;
   dragState = null;
-  document.body.classList.remove("dragging-occurrence");
-  currentDrag.card.classList.remove("dragging");
-  if (!currentDrag.dragging) return;
+  if (!currentDrag.dragging) {
+    resetOccurrenceDrag(currentDrag);
+    return;
+  }
   const target = document.elementFromPoint(event.clientX, event.clientY);
   const targetDate = target?.closest("[data-day-date]")?.dataset.dayDate || target?.closest("[data-occurrence-card]")?.dataset.occurrenceDate;
+  resetOccurrenceDrag(currentDrag);
   openRescheduleModal(currentDrag.occurrenceId, targetDate || currentDrag.sourceDate);
   window.setTimeout(() => {
     if (suppressOccurrenceClickId === currentDrag.occurrenceId) suppressOccurrenceClickId = null;
@@ -916,9 +929,19 @@ function cancelOccurrenceDrag() {
   if (!dragState) return;
   clearTimeout(dragState.timer);
   window.removeEventListener("pointermove", trackOccurrenceDrag);
-  dragState.card.classList.remove("dragging");
-  document.body.classList.remove("dragging-occurrence");
+  resetOccurrenceDrag(dragState);
   dragState = null;
+}
+
+function resetOccurrenceDrag(currentDrag) {
+  try {
+    if (currentDrag.card.hasPointerCapture?.(currentDrag.pointerId)) currentDrag.card.releasePointerCapture(currentDrag.pointerId);
+  } catch {
+    // The pointer may already be released by the browser after touch cancellation.
+  }
+  currentDrag.card.classList.remove("dragging");
+  currentDrag.card.style.transform = "";
+  document.body.classList.remove("dragging-occurrence");
 }
 
 function distanceBetween(startX, startY, endX, endY) {
