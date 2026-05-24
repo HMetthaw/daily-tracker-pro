@@ -356,7 +356,7 @@ function renderToday() {
 }
 
 function renderNextTask(nextOccurrence, total) {
-  if (nextOccurrence) return renderOccurrence(nextOccurrence, true);
+  if (nextOccurrence) return renderOccurrence(nextOccurrence, true, true);
   return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
 }
 
