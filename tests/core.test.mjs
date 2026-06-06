@@ -101,15 +101,21 @@ test("notification intents cover task reminders and Sunday recap", () => {
       type: "recurring",
       daysOfWeek: ["sun", "mon"],
       reminderTime: "09:00",
+      leadTimeMinutes: 15,
       active: true
     }
   ];
 
   const intents = taskNotificationIntents(tasks, "2026-05-17", 7);
-  assert.equal(intents.length, 2);
+  assert.equal(intents.length, 4);
   assert.deepEqual(
-    intents.map((item) => item.date),
-    ["2026-05-17", "2026-05-18"]
+    intents.map((item) => `${item.kind}:${item.date}:${item.time}`),
+    [
+      "lead:2026-05-17:08:45",
+      "due:2026-05-17:09:00",
+      "lead:2026-05-18:08:45",
+      "due:2026-05-18:09:00"
+    ]
   );
   assert.equal(weeklyRecapIntent("2026-05-17").time, "09:00");
 });

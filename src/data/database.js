@@ -30,7 +30,14 @@ export async function getDatabase() {
       value TEXT NOT NULL
     );
   `);
+  await ensureColumn(db, "tasks", "lead_time_minutes", "INTEGER");
   return db;
+}
+
+async function ensureColumn(db, tableName, columnName, definition) {
+  const columns = await db.getAllAsync(`PRAGMA table_info(${tableName})`);
+  if (columns.some((column) => column.name === columnName)) return;
+  await db.execAsync(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
 }
 
 export async function getSetting(key, fallback) {
@@ -59,13 +66,14 @@ export async function saveTask(task) {
   const now = new Date().toISOString();
   await db.runAsync(
     `INSERT OR REPLACE INTO tasks
-      (id, title, type, days_json, reminder_time, date, active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?))`,
+      (id, title, type, days_json, reminder_time, lead_time_minutes, date, active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?))`,
     task.id,
     task.title.trim(),
     task.type,
     JSON.stringify(task.daysOfWeek || []),
     task.reminderTime || null,
+    Number.isInteger(task.leadTimeMinutes) ? task.leadTimeMinutes : null,
     task.date || null,
     task.active === false ? 0 : 1,
     task.id,
@@ -109,6 +117,7 @@ function rowToTask(row) {
     type: row.type,
     daysOfWeek: JSON.parse(row.days_json || "[]"),
     reminderTime: row.reminder_time || null,
+    leadTimeMinutes: row.lead_time_minutes == null ? null : Number(row.lead_time_minutes),
     date: row.date || null,
     active: row.active === 1,
     createdAt: row.created_at

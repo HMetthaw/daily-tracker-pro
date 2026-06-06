@@ -50,10 +50,18 @@ export const translations = {
     steady: "Jdeš dobře. Zaměř se na jeden úkol, který nejčastěji uniká.",
     notificationTaskTitle: "Čas na úkol",
     notificationTaskBody: "{title}",
+    notificationLeadTitle: "Za {minutes} min začíná",
+    notificationLeadBody: "{title} - připrav si podklady.",
     notificationRecapTitle: "Týdenní recap",
     notificationRecapBody: "Podívej se, jak dopadl tvůj týden.",
     permissionDenied: "Notifikace nejsou povolené v nastavení telefonu.",
     timePlaceholder: "HH:MM",
+    leadTime: "Upozornit předem",
+    leadTimeHint: "Vyber minuty před časem úkolu.",
+    leadTimeNeedsTaskTime: "Nejdřív nastav čas úkolu.",
+    leadTimeCustomPlaceholder: "Vlastní minuty předem",
+    leadTimeCustomHint: "Zadej 1 až 1440 minut.",
+    leadTimeMinutes: "{minutes} min předem",
     addOneTimeToday: "Jednorázový na dnes"
   },
   en: {
@@ -107,10 +115,18 @@ export const translations = {
     steady: "You are moving well. Focus on the one task that slips most often.",
     notificationTaskTitle: "Task time",
     notificationTaskBody: "{title}",
+    notificationLeadTitle: "Starts in {minutes} min",
+    notificationLeadBody: "{title} - prepare your notes.",
     notificationRecapTitle: "Weekly recap",
     notificationRecapBody: "Check how your week went.",
     permissionDenied: "Notifications are not allowed in phone settings.",
     timePlaceholder: "HH:MM",
+    leadTime: "Alert before",
+    leadTimeHint: "Choose minutes before the task time.",
+    leadTimeNeedsTaskTime: "Set the task time first.",
+    leadTimeCustomPlaceholder: "Custom minutes before",
+    leadTimeCustomHint: "Enter 1 to 1440 minutes.",
+    leadTimeMinutes: "{minutes} min before",
     addOneTimeToday: "One-time for today"
   }
 };

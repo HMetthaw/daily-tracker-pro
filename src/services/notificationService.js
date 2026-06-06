@@ -33,9 +33,13 @@ export async function rescheduleNotifications(tasks, language) {
     await Notifications.scheduleNotificationAsync({
       identifier: intent.identifier,
       content: {
-        title: t(language, "notificationTaskTitle"),
-        body: t(language, "notificationTaskBody", { title: intent.title }),
-        data: { occurrenceId: intent.occurrenceId }
+        title: intent.kind === "lead"
+          ? t(language, "notificationLeadTitle", { minutes: intent.leadTimeMinutes })
+          : t(language, "notificationTaskTitle"),
+        body: intent.kind === "lead"
+          ? t(language, "notificationLeadBody", { title: intent.title, minutes: intent.leadTimeMinutes })
+          : t(language, "notificationTaskBody", { title: intent.title }),
+        data: { occurrenceId: intent.occurrenceId, kind: intent.kind }
       },
       trigger
     });

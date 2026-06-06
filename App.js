@@ -44,8 +44,11 @@ const emptyForm = {
   type: "recurring",
   daysOfWeek: [...WEEKDAY_KEYS],
   reminderTime: "",
+  leadTimeMinutes: null,
   date: todayISO()
 };
+
+const leadTimePresets = [5, 10, 15, 30, 60];
 
 const themes = {
   light: {
@@ -159,6 +162,7 @@ export default function App() {
       type: task.type,
       daysOfWeek: task.daysOfWeek?.length ? task.daysOfWeek : [...WEEKDAY_KEYS],
       reminderTime: task.reminderTime || "",
+      leadTimeMinutes: task.leadTimeMinutes || null,
       date: task.date || today
     });
     setFormOpen(true);
@@ -170,10 +174,15 @@ export default function App() {
       Alert.alert(t(language, "reminder"), t(language, "timePlaceholder"));
       return;
     }
+    if (form.leadTimeMinutes != null && (!Number.isInteger(form.leadTimeMinutes) || form.leadTimeMinutes < 1 || form.leadTimeMinutes > 1440)) {
+      Alert.alert(t(language, "leadTime"), t(language, "leadTimeCustomHint"));
+      return;
+    }
     const task = {
       ...form,
       id: form.id || `${Date.now()}`,
       reminderTime: form.reminderTime || null,
+      leadTimeMinutes: form.reminderTime ? form.leadTimeMinutes : null,
       daysOfWeek: form.type === "recurring" ? form.daysOfWeek : [],
       date: form.type === "oneTime" ? form.date : null,
       active: true
@@ -283,7 +292,7 @@ export default function App() {
                 <Text style={styles.taskTitle}>{task.title}</Text>
                 <Text style={styles.subtle}>
                   {task.type === "oneTime" ? t(language, "oneTime") : t(language, "recurring")}
-                  {task.reminderTime ? ` - ${task.reminderTime}` : ` - ${t(language, "noReminder")}`}
+                  {` - ${taskReminderLabel(task, language)}`}
                 </Text>
               </View>
               <TouchableOpacity style={styles.iconButton} onPress={() => removeTask(task)}>
@@ -458,8 +467,27 @@ function Empty({ text, styles, theme }) {
   );
 }
 
+function taskReminderLabel(task, language) {
+  if (!task.reminderTime) return t(language, "noReminder");
+  if (!task.leadTimeMinutes) return task.reminderTime;
+  return `${task.reminderTime} - ${leadTimeLabel(task.leadTimeMinutes, language)}`;
+}
+
+function leadTimeLabel(minutes, language) {
+  return t(language, "leadTimeMinutes", { minutes });
+}
+
 function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSubmit }) {
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [customLeadTime, setCustomLeadTime] = useState("");
+
+  useEffect(() => {
+    setCustomLeadTime(
+      form.leadTimeMinutes && !leadTimePresets.includes(form.leadTimeMinutes)
+        ? String(form.leadTimeMinutes)
+        : ""
+    );
+  }, [form.id, form.leadTimeMinutes, open]);
 
   function toggleDay(day) {
     const selected = form.daysOfWeek.includes(day);
@@ -530,7 +558,7 @@ function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSub
                 language={language}
                 styles={styles}
                 onClear={() => {
-                  setForm({ ...form, reminderTime: "" });
+                  setForm({ ...form, reminderTime: "", leadTimeMinutes: null });
                   setTimePickerOpen(false);
                 }}
                 onSelect={(reminderTime) => {
@@ -539,6 +567,16 @@ function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSub
                 }}
               />
             )}
+            <LeadTimePicker
+              customLeadTime={customLeadTime}
+              disabled={!form.reminderTime}
+              form={form}
+              language={language}
+              setCustomLeadTime={setCustomLeadTime}
+              setForm={setForm}
+              styles={styles}
+              theme={theme}
+            />
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
                 <Text style={styles.secondaryButtonText}>{t(language, "cancel")}</Text>
@@ -552,6 +590,62 @@ function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSub
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function LeadTimePicker({ customLeadTime, disabled, form, language, setCustomLeadTime, setForm, styles, theme }) {
+  function selectLeadTime(minutes) {
+    setCustomLeadTime("");
+    setForm({ ...form, leadTimeMinutes: form.leadTimeMinutes === minutes ? null : minutes });
+  }
+
+  function changeCustomLeadTime(value) {
+    const sanitized = value.replace(/\D/g, "").slice(0, 4);
+    setCustomLeadTime(sanitized);
+    setForm({ ...form, leadTimeMinutes: sanitized ? Number(sanitized) : null });
+  }
+
+  return (
+    <View style={[styles.leadTimePanel, disabled && styles.disabledPanel]}>
+      <View>
+        <Text style={styles.timeLabel}>{t(language, "leadTime")}</Text>
+        <Text style={styles.leadTimeHint}>
+          {disabled ? t(language, "leadTimeNeedsTaskTime") : t(language, "leadTimeHint")}
+        </Text>
+      </View>
+      <View style={styles.leadChipRow}>
+        {leadTimePresets.map((minutes) => (
+          <TouchableOpacity
+            key={minutes}
+            disabled={disabled}
+            style={[
+              styles.leadChip,
+              form.leadTimeMinutes === minutes && !customLeadTime && styles.leadChipActive,
+              disabled && styles.disabledChip
+            ]}
+            onPress={() => selectLeadTime(minutes)}
+          >
+            <Text
+              style={[
+                styles.leadChipText,
+                form.leadTimeMinutes === minutes && !customLeadTime && styles.leadChipTextActive
+              ]}
+            >
+              {minutes}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <TextInput
+        style={[styles.input, disabled && styles.inputDisabled]}
+        value={customLeadTime}
+        onChangeText={changeCustomLeadTime}
+        placeholder={t(language, "leadTimeCustomPlaceholder")}
+        placeholderTextColor={theme.muted}
+        keyboardType="number-pad"
+        editable={!disabled}
+      />
+    </View>
   );
 }
 
@@ -846,6 +940,9 @@ function createStyles(theme) {
       color: theme.text,
       backgroundColor: theme.surface
     },
+    inputDisabled: {
+      opacity: 0.45
+    },
     segmented: {
       flexDirection: "row",
       backgroundColor: theme.track,
@@ -926,6 +1023,53 @@ function createStyles(theme) {
       backgroundColor: theme.surface,
       padding: 10,
       gap: 10
+    },
+    leadTimePanel: {
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      backgroundColor: theme.nested,
+      padding: 12,
+      gap: 10
+    },
+    disabledPanel: {
+      opacity: 0.62
+    },
+    leadTimeHint: {
+      color: theme.muted,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 3
+    },
+    leadChipRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8
+    },
+    leadChip: {
+      minWidth: 48,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.surface
+    },
+    disabledChip: {
+      opacity: 0.5
+    },
+    leadChipActive: {
+      borderColor: theme.primary,
+      backgroundColor: theme.primarySoft
+    },
+    leadChipText: {
+      color: theme.muted,
+      fontSize: 14,
+      fontWeight: "800"
+    },
+    leadChipTextActive: {
+      color: theme.primary
     },
     timeColumns: {
       height: 190,

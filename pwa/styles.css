@@ -706,6 +706,54 @@ body.dragging-occurrence .day-card {
   background: var(--surface);
 }
 
+.lead-time-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.lead-time-panel.disabled {
+  opacity: 0.62;
+}
+
+.lead-time-panel small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.lead-time-panel p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.lead-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lead-chip-row button {
+  min-width: 48px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 900;
+  background: var(--surface);
+}
+
+.lead-chip-row button.active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .time-columns {
   display: grid;
   grid-template-columns: minmax(90px, 1fr) auto minmax(90px, 1fr);

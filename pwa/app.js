@@ -1,6 +1,7 @@
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const STORE_KEY = "daily-tracker-pro:pwa:v1";
 const STREAK_THRESHOLD = 0.8;
+const LEAD_TIME_PRESETS = [5, 10, 15, 30, 60];
 
 const translations = {
   cs: {
@@ -79,6 +80,13 @@ const translations = {
     installHint: "Přidat na plochu",
     pwaLimit: "PWA notifikace jsou demo režim; pro přesné budíky je lepší pozdější iOS build.",
     taskTime: "Čas na úkol",
+    leadTime: "Upozornit předem",
+    leadTimeHint: "Vyber minuty před časem úkolu.",
+    leadTimeNeedsTaskTime: "Nejdřív nastav čas úkolu.",
+    leadTimeCustom: "Vlastní minuty",
+    leadTimeMinutes: "{minutes} min předem",
+    leadNotificationTitle: "Za {minutes} min začíná",
+    leadNotificationBody: "{title} - připrav si podklady.",
     weeklyRecap: "Týdenní recap",
     snooze: "Připomenout znovu",
     snooze15: "15 min",
@@ -184,6 +192,13 @@ const translations = {
     installHint: "Add to Home Screen",
     pwaLimit: "PWA notifications are demo mode; a later iOS build is better for exact alarms.",
     taskTime: "Task time",
+    leadTime: "Alert before",
+    leadTimeHint: "Choose minutes before the task time.",
+    leadTimeNeedsTaskTime: "Set the task time first.",
+    leadTimeCustom: "Custom minutes",
+    leadTimeMinutes: "{minutes} min before",
+    leadNotificationTitle: "Starts in {minutes} min",
+    leadNotificationBody: "{title} - prepare your notes.",
     weeklyRecap: "Weekly recap",
     snooze: "Remind again",
     snooze15: "15 min",
@@ -648,7 +663,7 @@ function renderTask(task) {
     <article class="task-card">
       <button class="task-main" data-edit-task="${task.id}">
         <strong>${escapeHtml(task.title)}</strong>
-        <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${task.reminderTime || t("noReminder")}`)}</small>
+        <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${taskReminderLabel(task)}`)}</small>
       </button>
       <button class="danger" data-delete-task="${task.id}">${t("delete")}</button>
     </article>
@@ -660,7 +675,18 @@ function occurrenceMeta(occurrence) {
   const project = occurrence.projectId ? projectName(occurrence.projectId) : "";
   const base = time && project ? `${time} - ${project}` : time || project || occurrence.reminderTime || t("noReminder");
   const snooze = snoozeLabel(occurrence.snoozeAt);
-  return snooze ? `${base} - ${snooze}` : base;
+  const lead = occurrence.leadTimeMinutes ? ` - ${leadTimeLabel(occurrence.leadTimeMinutes)}` : "";
+  return snooze ? `${base}${lead} - ${snooze}` : `${base}${lead}`;
+}
+
+function taskReminderLabel(task) {
+  if (!task.reminderTime) return t("noReminder");
+  if (!task.leadTimeMinutes) return task.reminderTime;
+  return `${task.reminderTime} - ${leadTimeLabel(task.leadTimeMinutes)}`;
+}
+
+function leadTimeLabel(minutes) {
+  return t("leadTimeMinutes", { minutes });
 }
 
 function projectTaskMeta(task) {
@@ -1192,6 +1218,7 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
         <input type="hidden" name="hour" value="${initialHour}" />
         <input type="hidden" name="minute" value="${initialMinute}" />
         <input type="hidden" name="hasReminder" value="${task.reminderTime ? "1" : "0"}" />
+        <input type="hidden" name="leadTimeMinutes" value="${task.leadTimeMinutes || ""}" />
         <button type="button" class="time-button" data-time-toggle>
           <span>
             <small>${t("reminder")}</small>
@@ -1207,6 +1234,7 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
           </div>
           <button type="button" class="secondary full" data-clear-time>${t("noReminder")}</button>
         </div>
+        ${renderLeadTimeControls(task)}
         <div class="form-actions">
           <button type="button" class="secondary" data-close>${t("cancel")}</button>
           <button type="submit" class="primary">${t("save")}</button>
@@ -1241,7 +1269,9 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
   });
   form.querySelector("[data-clear-time]").addEventListener("click", () => {
     form.elements.hasReminder.value = "0";
+    form.elements.leadTimeMinutes.value = "";
     form.querySelector("[data-time-label]").textContent = t("noReminder");
+    updateLeadTimeState(form);
   });
   form.querySelectorAll("[data-time-kind]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1250,11 +1280,68 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
       form.elements.hasReminder.value = "1";
       form.querySelectorAll(`[data-time-kind="${kind}"]`).forEach((item) => item.classList.toggle("active", item === button));
       form.querySelector("[data-time-label]").textContent = `${form.elements.hour.value}:${form.elements.minute.value}`;
+      updateLeadTimeState(form);
     });
   });
+  form.querySelectorAll("[data-lead-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (form.elements.hasReminder.value !== "1") return;
+      const minutes = button.dataset.leadPreset;
+      const selected = form.elements.leadTimeMinutes.value === minutes;
+      form.elements.leadTimeMinutes.value = selected ? "" : minutes;
+      form.elements.customLeadTime.value = "";
+      updateLeadTimeState(form);
+    });
+  });
+  form.elements.customLeadTime.addEventListener("input", () => {
+    if (form.elements.hasReminder.value !== "1") return;
+    const sanitized = form.elements.customLeadTime.value.replace(/\D/g, "").slice(0, 4);
+    form.elements.customLeadTime.value = sanitized;
+    form.elements.leadTimeMinutes.value = sanitized;
+    updateLeadTimeState(form);
+  });
+  updateLeadTimeState(form);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     saveTaskFromForm(form);
+  });
+}
+
+function renderLeadTimeControls(task) {
+  const disabled = !task.reminderTime;
+  const selected = Number(task.leadTimeMinutes) || 0;
+  const customValue = selected && !LEAD_TIME_PRESETS.includes(selected) ? selected : "";
+  return `
+    <section class="lead-time-panel ${disabled ? "disabled" : ""}" data-lead-panel>
+      <div>
+        <small>${t("leadTime")}</small>
+        <p class="muted" data-lead-hint>${disabled ? t("leadTimeNeedsTaskTime") : t("leadTimeHint")}</p>
+      </div>
+      <div class="lead-chip-row">
+        ${LEAD_TIME_PRESETS.map(
+          (minutes) => `
+            <button type="button" class="${selected === minutes && !customValue ? "active" : ""}" data-lead-preset="${minutes}">
+              ${minutes}
+            </button>
+          `
+        ).join("")}
+      </div>
+      <input name="customLeadTime" inputmode="numeric" value="${customValue}" placeholder="${t("leadTimeCustom")}" ${disabled ? "disabled" : ""} />
+    </section>
+  `;
+}
+
+function updateLeadTimeState(form) {
+  const enabled = form.elements.hasReminder.value === "1";
+  const selected = form.elements.leadTimeMinutes.value;
+  const customValue = form.elements.customLeadTime.value;
+  const panel = form.querySelector("[data-lead-panel]");
+  panel.classList.toggle("disabled", !enabled);
+  form.elements.customLeadTime.disabled = !enabled;
+  form.querySelector("[data-lead-hint]").textContent = enabled ? t("leadTimeHint") : t("leadTimeNeedsTaskTime");
+  form.querySelectorAll("[data-lead-preset]").forEach((button) => {
+    button.disabled = !enabled;
+    button.classList.toggle("active", selected === button.dataset.leadPreset && !customValue);
   });
 }
 
@@ -1285,6 +1372,7 @@ function saveTaskFromForm(form) {
     type: form.elements.type.value,
     daysOfWeek: form.elements.type.value === "recurring" ? form.elements.days.value.split(",").filter(Boolean) : [],
     reminderTime: form.elements.hasReminder.value === "1" ? `${form.elements.hour.value}:${form.elements.minute.value}` : "",
+    leadTimeMinutes: form.elements.hasReminder.value === "1" ? parseLeadTime(form.elements.leadTimeMinutes.value) : null,
     date: form.elements.type.value === "oneTime" ? form.elements.date.value || todayISO() : "",
     active: true,
     createdAt: existing?.createdAt || new Date().toISOString()
@@ -1297,6 +1385,11 @@ function saveTaskFromForm(form) {
   saveState();
   closeModal();
   render();
+}
+
+function parseLeadTime(value) {
+  const minutes = Number(value);
+  return Number.isInteger(minutes) && minutes > 0 && minutes <= 1440 ? minutes : null;
 }
 
 function closeModal() {
@@ -1554,6 +1647,20 @@ function checkReminders() {
   const currentTime = timeString(now);
   for (const occurrence of hydratedOccurrencesForWeek(currentDate)) {
     if (state.nextTaskSkips[occurrence.id]) continue;
+    const leadDateTime = leadNotificationDateTime(occurrence);
+    const leadKey = `${occurrence.id}:lead:${occurrence.leadTimeMinutes}:${currentTime}`;
+    if (
+      leadDateTime &&
+      leadDateTime.date === currentDate &&
+      leadDateTime.time === currentTime &&
+      !notifiedKeys.has(leadKey)
+    ) {
+      notifiedKeys.add(leadKey);
+      new Notification(t("leadNotificationTitle", { minutes: occurrence.leadTimeMinutes }), {
+        body: t("leadNotificationBody", { title: occurrence.title }),
+        icon: "./icons/icon.svg"
+      });
+    }
     const key = `${occurrence.id}:${currentTime}`;
     if (occurrence.date === currentDate && occurrence.reminderTime === currentTime && !notifiedKeys.has(key)) {
       notifiedKeys.add(key);
@@ -1634,6 +1741,7 @@ function createOccurrence(task, date) {
     startTime: task.startTime || "",
     endTime: task.endTime || "",
     reminderTime: task.reminderTime || "",
+    leadTimeMinutes: parseLeadTime(task.leadTimeMinutes),
     status: "pending"
   };
 }
@@ -1770,6 +1878,16 @@ function addMinutes(date, amount) {
   const next = new Date(date);
   next.setMinutes(next.getMinutes() + amount);
   return next;
+}
+
+function leadNotificationDateTime(occurrence) {
+  if (!occurrence.reminderTime || !occurrence.leadTimeMinutes) return null;
+  const [year, month, day] = occurrence.date.split("-").map(Number);
+  const [hour, minute] = occurrence.reminderTime.split(":").map(Number);
+  if (![year, month, day, hour, minute, occurrence.leadTimeMinutes].every(Number.isFinite)) return null;
+  const date = new Date(year, month - 1, day, hour, minute, 0);
+  date.setMinutes(date.getMinutes() - occurrence.leadTimeMinutes);
+  return { date: toISODate(date), time: timeString(date) };
 }
 
 function snoozeLabel(value) {
