@@ -32,6 +32,7 @@ export async function getDatabase() {
   `);
   await ensureColumn(db, "tasks", "lead_time_minutes", "INTEGER");
   await ensureColumn(db, "tasks", "notes", "TEXT");
+  await ensureColumn(db, "tasks", "call_prep_json", "TEXT");
   return db;
 }
 
@@ -67,8 +68,8 @@ export async function saveTask(task) {
   const now = new Date().toISOString();
   await db.runAsync(
     `INSERT OR REPLACE INTO tasks
-      (id, title, type, days_json, reminder_time, lead_time_minutes, notes, date, active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?))`,
+      (id, title, type, days_json, reminder_time, lead_time_minutes, notes, call_prep_json, date, active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?))`,
     task.id,
     task.title.trim(),
     task.type,
@@ -76,6 +77,7 @@ export async function saveTask(task) {
     task.reminderTime || null,
     Number.isInteger(task.leadTimeMinutes) ? task.leadTimeMinutes : null,
     task.notes || null,
+    JSON.stringify(task.callPrepItems || []),
     task.date || null,
     task.active === false ? 0 : 1,
     task.id,
@@ -121,8 +123,18 @@ function rowToTask(row) {
     reminderTime: row.reminder_time || null,
     leadTimeMinutes: row.lead_time_minutes == null ? null : Number(row.lead_time_minutes),
     notes: row.notes || "",
+    callPrepItems: parseJsonArray(row.call_prep_json),
     date: row.date || null,
     active: row.active === 1,
     createdAt: row.created_at
   };
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }

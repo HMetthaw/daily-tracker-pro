@@ -46,6 +46,7 @@ const emptyForm = {
   reminderTime: "",
   leadTimeMinutes: null,
   notes: "",
+  callPrepText: "",
   date: todayISO()
 };
 
@@ -101,6 +102,7 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [occurrences, setOccurrences] = useState([]);
   const [dailyFocusIds, setDailyFocusIds] = useState([]);
+  const [callPrepDone, setCallPrepDone] = useState({});
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const today = todayISO();
@@ -127,9 +129,11 @@ export default function App() {
       await getSetting(focusSettingKey(today), "[]"),
       nextOccurrences.filter((occurrence) => occurrence.date === today)
     );
+    const nextCallPrepDone = await loadCallPrepDone(nextOccurrences);
     setTasks(nextTasks);
     setOccurrences(nextOccurrences);
     setDailyFocusIds(nextDailyFocusIds);
+    setCallPrepDone(nextCallPrepDone);
     await rescheduleNotifications(nextTasks, nextLanguage);
   }
 
@@ -171,6 +175,7 @@ export default function App() {
       reminderTime: task.reminderTime || "",
       leadTimeMinutes: task.leadTimeMinutes || null,
       notes: task.notes || "",
+      callPrepText: (task.callPrepItems || []).join("\n"),
       date: task.date || today
     });
     setFormOpen(true);
@@ -192,6 +197,7 @@ export default function App() {
       reminderTime: form.reminderTime || null,
       leadTimeMinutes: form.reminderTime ? form.leadTimeMinutes : null,
       notes: form.notes?.trim() || "",
+      callPrepItems: parseCallPrepText(form.callPrepText),
       daysOfWeek: form.type === "recurring" ? form.daysOfWeek : [],
       date: form.type === "oneTime" ? form.date : null,
       active: true
@@ -199,6 +205,17 @@ export default function App() {
     await saveTask(task);
     setFormOpen(false);
     await refresh();
+  }
+
+  async function toggleCallPrepItem(occurrence, index) {
+    const current = callPrepDone[occurrence.id] || [];
+    const next = current.includes(index)
+      ? current.filter((item) => item !== index)
+      : [...current, index].sort((a, b) => a - b);
+    const nextCallPrepDone = { ...callPrepDone, [occurrence.id]: next };
+
+    setCallPrepDone(nextCallPrepDone);
+    await setSetting(callPrepSettingKey(occurrence.id), JSON.stringify(next));
   }
 
   async function toggleDailyFocus(occurrence) {
@@ -264,8 +281,10 @@ export default function App() {
               theme={theme}
               styles={styles}
               focused={dailyFocusIds.includes(occurrence.id)}
+              prepDone={callPrepDone[occurrence.id] || []}
               onPress={() => toggleOccurrence(occurrence)}
               onToggleFocus={() => toggleDailyFocus(occurrence)}
+              onTogglePrep={(index) => toggleCallPrepItem(occurrence, index)}
             />
           ))
         )}
@@ -330,6 +349,9 @@ export default function App() {
                   {` - ${taskReminderLabel(task, language)}`}
                 </Text>
                 {task.notes ? <Text style={styles.notePreview}>{task.notes}</Text> : null}
+                {task.callPrepItems?.length ? (
+                  <Text style={styles.notePreview}>{t(language, "callPrepCount", { count: task.callPrepItems.length })}</Text>
+                ) : null}
               </View>
               <TouchableOpacity style={styles.iconButton} onPress={() => removeTask(task)}>
                 <Ionicons name="trash-outline" size={19} color={theme.danger} />
@@ -471,26 +493,57 @@ function DailyFocusCard({ occurrences, language, styles }) {
   );
 }
 
-function OccurrenceRow({ occurrence, language, theme, styles, onPress, onToggleFocus, focused = false, compact = false }) {
+function OccurrenceRow({
+  occurrence,
+  language,
+  theme,
+  styles,
+  onPress,
+  onToggleFocus,
+  onTogglePrep,
+  prepDone = [],
+  focused = false,
+  compact = false
+}) {
   const done = occurrence.status === "done";
   return (
     <View style={[styles.occurrenceRow, compact && styles.compactRow, focused && styles.focusedRow]}>
-      <TouchableOpacity style={styles.occurrenceMain} onPress={onPress}>
-        <Ionicons
-          name={done ? "checkmark-circle" : "ellipse-outline"}
-          size={24}
-          color={done ? theme.primary : theme.muted}
-        />
-        <View style={styles.taskCardText}>
-          <Text style={[styles.taskTitle, done && styles.doneText]}>{occurrence.title}</Text>
-          <Text style={styles.subtle}>{occurrence.reminderTime || t(language, "noReminder")}</Text>
-          {occurrence.notes ? <Text style={styles.notePreview}>{occurrence.notes}</Text> : null}
-        </View>
-      </TouchableOpacity>
-      {onToggleFocus ? (
-        <TouchableOpacity style={[styles.focusButton, focused && styles.focusButtonActive]} onPress={onToggleFocus}>
-          <Ionicons name={focused ? "star" : "star-outline"} size={20} color={focused ? theme.primary : theme.muted} />
+      <View style={styles.occurrenceTop}>
+        <TouchableOpacity style={styles.occurrenceMain} onPress={onPress}>
+          <Ionicons
+            name={done ? "checkmark-circle" : "ellipse-outline"}
+            size={24}
+            color={done ? theme.primary : theme.muted}
+          />
+          <View style={styles.taskCardText}>
+            <Text style={[styles.taskTitle, done && styles.doneText]}>{occurrence.title}</Text>
+            <Text style={styles.subtle}>{occurrence.reminderTime || t(language, "noReminder")}</Text>
+            {occurrence.notes ? <Text style={styles.notePreview}>{occurrence.notes}</Text> : null}
+          </View>
         </TouchableOpacity>
+        {onToggleFocus ? (
+          <TouchableOpacity style={[styles.focusButton, focused && styles.focusButtonActive]} onPress={onToggleFocus}>
+            <Ionicons name={focused ? "star" : "star-outline"} size={20} color={focused ? theme.primary : theme.muted} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {!compact && occurrence.callPrepItems?.length ? (
+        <View style={styles.callPrepList}>
+          <Text style={styles.callPrepTitle}>{t(language, "callPrep")}</Text>
+          {occurrence.callPrepItems.map((item, index) => {
+            const checked = prepDone.includes(index);
+            return (
+              <TouchableOpacity key={`${item}:${index}`} style={styles.callPrepItem} onPress={() => onTogglePrep?.(index)}>
+                <Ionicons
+                  name={checked ? "checkbox" : "square-outline"}
+                  size={19}
+                  color={checked ? theme.primary : theme.muted}
+                />
+                <Text style={[styles.callPrepText, checked && styles.callPrepTextDone]}>{item}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       ) : null}
     </View>
   );
@@ -554,6 +607,39 @@ function parseFocusIds(value, occurrences) {
   } catch {
     return [];
   }
+}
+
+async function loadCallPrepDone(occurrences) {
+  const entries = await Promise.all(
+    occurrences
+      .filter((occurrence) => occurrence.callPrepItems?.length)
+      .map(async (occurrence) => [
+        occurrence.id,
+        parseIndexList(await getSetting(callPrepSettingKey(occurrence.id), "[]"))
+      ])
+  );
+  return Object.fromEntries(entries);
+}
+
+function callPrepSettingKey(occurrenceId) {
+  return `callPrep:${occurrenceId}`;
+}
+
+function parseIndexList(value) {
+  try {
+    const indexes = JSON.parse(value);
+    return Array.isArray(indexes) ? indexes.filter(Number.isInteger) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseCallPrepText(value) {
+  return String(value || "")
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSubmit }) {
@@ -661,6 +747,15 @@ function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSub
               value={form.notes}
               onChangeText={(notes) => setForm({ ...form, notes })}
               placeholder={t(language, "taskNotes")}
+              placeholderTextColor={theme.muted}
+              multiline
+              textAlignVertical="top"
+            />
+            <TextInput
+              style={[styles.input, styles.callPrepInput]}
+              value={form.callPrepText}
+              onChangeText={(callPrepText) => setForm({ ...form, callPrepText })}
+              placeholder={t(language, "callPrepPlaceholder")}
               placeholderTextColor={theme.muted}
               multiline
               textAlignVertical="top"
@@ -955,6 +1050,9 @@ function createStyles(theme) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.border,
       padding: 14,
+      gap: 12
+    },
+    occurrenceTop: {
       flexDirection: "row",
       alignItems: "center",
       gap: 12
@@ -1091,6 +1189,11 @@ function createStyles(theme) {
       paddingTop: 10,
       paddingBottom: 10
     },
+    callPrepInput: {
+      minHeight: 118,
+      paddingTop: 10,
+      paddingBottom: 10
+    },
     segmented: {
       flexDirection: "row",
       backgroundColor: theme.track,
@@ -1218,6 +1321,33 @@ function createStyles(theme) {
     },
     leadChipTextActive: {
       color: theme.primary
+    },
+    callPrepList: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.border,
+      paddingTop: 10,
+      gap: 8
+    },
+    callPrepTitle: {
+      color: theme.muted,
+      fontSize: 12,
+      fontWeight: "900"
+    },
+    callPrepItem: {
+      minHeight: 34,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8
+    },
+    callPrepText: {
+      flex: 1,
+      color: theme.text,
+      fontSize: 13,
+      lineHeight: 18
+    },
+    callPrepTextDone: {
+      color: theme.muted,
+      textDecorationLine: "line-through"
     },
     timeColumns: {
       height: 190,

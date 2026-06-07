@@ -28,6 +28,7 @@ test("recurring tasks generate occurrences for selected weekdays", () => {
       type: "recurring",
       daysOfWeek: ["sun", "tue", "thu"],
       reminderTime: "07:30",
+      callPrepItems: ["Open notes", "Check agenda"],
       active: true
     },
     {
@@ -50,6 +51,7 @@ test("recurring tasks generate occurrences for selected weekdays", () => {
       "exercise:2026-05-21"
     ]
   );
+  assert.deepEqual(occurrences[0].callPrepItems, ["Open notes", "Check agenda"]);
 });
 
 test("80 percent threshold controls daily streak qualification", () => {

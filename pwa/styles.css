@@ -325,6 +325,40 @@ button {
   color: var(--muted);
 }
 
+.call-prep-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  padding: 0 13px 12px 49px;
+}
+
+.call-prep-list > strong {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.call-prep-list button {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+}
+
+.call-prep-list button span {
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.call-prep-list button.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .occurrence.done strong {
   color: var(--muted);
   text-decoration: line-through;

@@ -38,6 +38,9 @@ const translations = {
     dailyFocusHint: "Označ hvězdičkou až 3 hlavní úkoly dne.",
     dailyFocusLimit: "Můžeš označit maximálně 3 úkoly na den.",
     taskNotes: "Poznámka, link, agenda nebo příprava",
+    callPrep: "Call prep",
+    callPrepPlaceholder: "Call prep checklist - každý bod na nový řádek",
+    callPrepCount: "Call prep: {count} bodů",
     fullDay: "Celý den",
     nextTaskEmpty: "Na dnes už nemáš žádný další úkol.",
     streak: "Streak",
@@ -154,6 +157,9 @@ const translations = {
     dailyFocusHint: "Star up to 3 main tasks for the day.",
     dailyFocusLimit: "You can focus at most 3 tasks per day.",
     taskNotes: "Note, link, agenda, or prep",
+    callPrep: "Call prep",
+    callPrepPlaceholder: "Call prep checklist - one item per line",
+    callPrepCount: "Call prep: {count} items",
     fullDay: "Full day",
     nextTaskEmpty: "No next task left for today.",
     streak: "Streak",
@@ -284,6 +290,7 @@ function defaultState() {
     skips: {},
     nextTaskSkips: {},
     dailyFocus: {},
+    callPrepDone: {},
     timeOverrides: {},
     settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
   };
@@ -316,6 +323,10 @@ function normalizeState(value) {
       source.dailyFocus && typeof source.dailyFocus === "object" && !Array.isArray(source.dailyFocus)
         ? source.dailyFocus
         : fallback.dailyFocus,
+    callPrepDone:
+      source.callPrepDone && typeof source.callPrepDone === "object" && !Array.isArray(source.callPrepDone)
+        ? source.callPrepDone
+        : fallback.callPrepDone,
     timeOverrides:
       source.timeOverrides && typeof source.timeOverrides === "object" && !Array.isArray(source.timeOverrides)
         ? source.timeOverrides
@@ -669,6 +680,7 @@ function renderProgressCard(title, stats) {
 function renderOccurrence(occurrence, showActions = true, draggable = false) {
   const done = occurrence.status === "done";
   const focused = isFocusedOccurrence(occurrence.id);
+  const showCallPrep = occurrence.date === todayISO() && occurrence.callPrepItems?.length;
   return `
     <article class="occurrence-card ${focused ? "focused" : ""} ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${occurrence.id}" data-occurrence-date="${occurrence.date}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
       <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
@@ -682,8 +694,27 @@ function renderOccurrence(occurrence, showActions = true, draggable = false) {
       <button class="focus-toggle ${focused ? "active" : ""}" data-focus-occurrence="${occurrence.id}" aria-label="${t("dailyFocus")}">
         ${focused ? "★" : "☆"}
       </button>
+      ${showCallPrep ? renderCallPrepChecklist(occurrence) : ""}
       ${!showActions || done ? "" : renderSnoozeActions(occurrence)}
     </article>
+  `;
+}
+
+function renderCallPrepChecklist(occurrence) {
+  const doneIndexes = callPrepDoneIndexes(occurrence.id);
+  return `
+    <div class="call-prep-list">
+      <strong>${t("callPrep")}</strong>
+      ${occurrence.callPrepItems.map((item, index) => {
+        const checked = doneIndexes.includes(index);
+        return `
+          <button type="button" class="${checked ? "done" : ""}" data-call-prep-occurrence="${occurrence.id}" data-call-prep-index="${index}">
+            <span>${checked ? "☑" : "☐"}</span>
+            ${escapeHtml(item)}
+          </button>
+        `;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -706,6 +737,7 @@ function renderTask(task) {
         <strong>${escapeHtml(task.title)}</strong>
         <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${taskReminderLabel(task)}`)}</small>
         ${task.notes ? `<em>${escapeHtml(task.notes)}</em>` : ""}
+        ${task.callPrepItems?.length ? `<em>${escapeHtml(t("callPrepCount", { count: task.callPrepItems.length }))}</em>` : ""}
       </button>
       <button class="danger" data-delete-task="${task.id}">${t("delete")}</button>
     </article>
@@ -855,6 +887,9 @@ function bindEvents() {
   document.querySelectorAll("[data-focus-occurrence]").forEach((button) => {
     button.addEventListener("click", () => toggleFocusOccurrence(button.dataset.focusOccurrence));
   });
+  document.querySelectorAll("[data-call-prep-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => toggleCallPrepItem(button.dataset.callPrepOccurrence, Number(button.dataset.callPrepIndex)));
+  });
   bindOccurrenceDragEvents();
   document.querySelectorAll("[data-snooze-occurrence]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -928,7 +963,7 @@ function bindEvents() {
 function bindOccurrenceDragEvents() {
   document.querySelectorAll("[data-draggable-occurrence]").forEach((card) => {
     card.addEventListener("pointerdown", (event) => {
-      if (event.target.closest(".snooze-row") || event.target.closest(".focus-toggle")) return;
+      if (event.target.closest(".snooze-row") || event.target.closest(".focus-toggle") || event.target.closest(".call-prep-list")) return;
       const occurrenceId = card.dataset.occurrenceCard;
       dragState = {
         card,
@@ -1242,6 +1277,7 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
         <h2>${t("addTask")}</h2>
         <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("taskName")}" />
         <textarea name="notes" rows="3" placeholder="${t("taskNotes")}">${escapeHtml(task.notes || "")}</textarea>
+        <textarea name="callPrepText" rows="4" placeholder="${t("callPrepPlaceholder")}">${escapeHtml((task.callPrepItems || []).join("\n"))}</textarea>
         <div class="segmented">
           <button type="button" class="${task.type === "recurring" ? "active" : ""}" data-type="recurring">${t("recurring")}</button>
           <button type="button" class="${task.type === "oneTime" ? "active" : ""}" data-type="oneTime">${t("oneTime")}</button>
@@ -1420,6 +1456,7 @@ function saveTaskFromForm(form) {
     reminderTime: form.elements.hasReminder.value === "1" ? `${form.elements.hour.value}:${form.elements.minute.value}` : "",
     leadTimeMinutes: form.elements.hasReminder.value === "1" ? parseLeadTime(form.elements.leadTimeMinutes.value) : null,
     notes: form.elements.notes.value.trim(),
+    callPrepItems: parseCallPrepText(form.elements.callPrepText.value),
     date: form.elements.type.value === "oneTime" ? form.elements.date.value || todayISO() : "",
     active: true,
     createdAt: existing?.createdAt || new Date().toISOString()
@@ -1437,6 +1474,14 @@ function saveTaskFromForm(form) {
 function parseLeadTime(value) {
   const minutes = Number(value);
   return Number.isInteger(minutes) && minutes > 0 && minutes <= 1440 ? minutes : null;
+}
+
+function parseCallPrepText(value) {
+  return String(value || "")
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function closeModal() {
@@ -1790,6 +1835,7 @@ function createOccurrence(task, date) {
     reminderTime: task.reminderTime || "",
     leadTimeMinutes: parseLeadTime(task.leadTimeMinutes),
     notes: task.notes || "",
+    callPrepItems: Array.isArray(task.callPrepItems) ? task.callPrepItems : [],
     status: "pending"
   };
 }
@@ -1834,6 +1880,21 @@ function toggleFocusOccurrence(occurrenceId) {
   } else {
     state.dailyFocus[date] = [...current, occurrenceId];
   }
+  saveState();
+  render();
+}
+
+function callPrepDoneIndexes(occurrenceId) {
+  const indexes = Array.isArray(state.callPrepDone[occurrenceId]) ? state.callPrepDone[occurrenceId] : [];
+  return indexes.filter(Number.isInteger);
+}
+
+function toggleCallPrepItem(occurrenceId, index) {
+  if (!Number.isInteger(index)) return;
+  const current = callPrepDoneIndexes(occurrenceId);
+  state.callPrepDone[occurrenceId] = current.includes(index)
+    ? current.filter((item) => item !== index)
+    : [...current, index].sort((a, b) => a - b);
   saveState();
   render();
 }

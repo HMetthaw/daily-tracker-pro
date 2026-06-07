@@ -36,6 +36,7 @@ export function createOccurrence(task, date) {
     reminderTime: task.reminderTime || null,
     leadTimeMinutes: Number.isInteger(task.leadTimeMinutes) ? task.leadTimeMinutes : null,
     notes: task.notes || "",
+    callPrepItems: task.callPrepItems || [],
     status: "pending"
   };
 }
