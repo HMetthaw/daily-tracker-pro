@@ -115,6 +115,17 @@ button {
   background: var(--surface);
 }
 
+.occurrence-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.occurrence-card.focused {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .card {
   padding: 14px;
 }
@@ -239,6 +250,21 @@ button {
   background: transparent;
 }
 
+.focus-toggle {
+  width: 46px;
+  min-height: 100%;
+  border-left: 1px solid var(--border);
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+  font-size: 22px;
+  font-weight: 900;
+  background: transparent;
+}
+
+.focus-toggle.active {
+  color: var(--primary);
+}
+
 .occurrence span:first-child {
   color: var(--primary);
   font-size: 24px;
@@ -255,6 +281,47 @@ button {
 .task-main small {
   display: block;
   margin-top: 2px;
+  color: var(--muted);
+}
+
+.occurrence em,
+.task-main em {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.focus-card {
+  display: grid;
+  gap: 8px;
+}
+
+.focus-card h2 {
+  margin: 0;
+}
+
+.focus-card .row > strong {
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.focus-line {
+  display: grid;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.focus-line span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.focus-line small {
   color: var(--muted);
 }
 
@@ -290,6 +357,7 @@ body.dragging-occurrence .day-card {
 }
 
 .snooze-row {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -609,6 +677,7 @@ body.dragging-occurrence .day-card {
 }
 
 .modal-card input,
+.modal-card textarea,
 .select-input {
   width: 100%;
   min-height: 48px;
@@ -704,6 +773,14 @@ body.dragging-occurrence .day-card {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.modal-card textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.35;
 }
 
 .lead-time-panel {

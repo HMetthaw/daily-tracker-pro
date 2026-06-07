@@ -62,6 +62,10 @@ export const translations = {
     leadTimeCustomPlaceholder: "Vlastní minuty předem",
     leadTimeCustomHint: "Zadej 1 až 1440 minut.",
     leadTimeMinutes: "{minutes} min předem",
+    taskNotes: "Poznámka, link, agenda nebo příprava",
+    dailyFocus: "Denní focus",
+    dailyFocusHint: "Označ hvězdičkou až 3 hlavní úkoly dne.",
+    dailyFocusLimit: "Můžeš označit maximálně 3 úkoly na den.",
     addOneTimeToday: "Jednorázový na dnes"
   },
   en: {
@@ -127,6 +131,10 @@ export const translations = {
     leadTimeCustomPlaceholder: "Custom minutes before",
     leadTimeCustomHint: "Enter 1 to 1440 minutes.",
     leadTimeMinutes: "{minutes} min before",
+    taskNotes: "Note, link, agenda, or prep",
+    dailyFocus: "Daily focus",
+    dailyFocusHint: "Star up to 3 main tasks for the day.",
+    dailyFocusLimit: "You can focus at most 3 tasks per day.",
     addOneTimeToday: "One-time for today"
   }
 };

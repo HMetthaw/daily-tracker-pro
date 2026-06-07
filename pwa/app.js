@@ -34,6 +34,10 @@ const translations = {
     addTodayHint: "Vyber čas, kdy se ti tenhle úkol hodí dnes.",
     dismiss: "Ne",
     nextTask: "Další úkol",
+    dailyFocus: "Denní focus",
+    dailyFocusHint: "Označ hvězdičkou až 3 hlavní úkoly dne.",
+    dailyFocusLimit: "Můžeš označit maximálně 3 úkoly na den.",
+    taskNotes: "Poznámka, link, agenda nebo příprava",
     fullDay: "Celý den",
     nextTaskEmpty: "Na dnes už nemáš žádný další úkol.",
     streak: "Streak",
@@ -146,6 +150,10 @@ const translations = {
     addTodayHint: "Choose when this task fits today.",
     dismiss: "No",
     nextTask: "Next task",
+    dailyFocus: "Daily focus",
+    dailyFocusHint: "Star up to 3 main tasks for the day.",
+    dailyFocusLimit: "You can focus at most 3 tasks per day.",
+    taskNotes: "Note, link, agenda, or prep",
     fullDay: "Full day",
     nextTaskEmpty: "No next task left for today.",
     streak: "Streak",
@@ -275,6 +283,7 @@ function defaultState() {
     snoozes: {},
     skips: {},
     nextTaskSkips: {},
+    dailyFocus: {},
     timeOverrides: {},
     settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
   };
@@ -303,6 +312,10 @@ function normalizeState(value) {
       source.nextTaskSkips && typeof source.nextTaskSkips === "object" && !Array.isArray(source.nextTaskSkips)
         ? source.nextTaskSkips
         : fallback.nextTaskSkips,
+    dailyFocus:
+      source.dailyFocus && typeof source.dailyFocus === "object" && !Array.isArray(source.dailyFocus)
+        ? source.dailyFocus
+        : fallback.dailyFocus,
     timeOverrides:
       source.timeOverrides && typeof source.timeOverrides === "object" && !Array.isArray(source.timeOverrides)
         ? source.timeOverrides
@@ -356,8 +369,10 @@ function renderToday() {
   const stats = completionStats(countedOccurrences);
   const nextOccurrence = nextTaskOccurrences(occurrences)[0];
   const showNext = state.settings.todayMode !== "full";
+  const focusOccurrences = todayFocusIds(today).map((id) => occurrences.find((occurrence) => occurrence.id === id)).filter(Boolean);
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
+    ${renderDailyFocus(focusOccurrences)}
     ${renderYesterdayReset(leftovers)}
     <article class="card today-mode-card">
       <div class="segmented">
@@ -373,6 +388,27 @@ function renderToday() {
 function renderNextTask(nextOccurrence, total) {
   if (nextOccurrence) return renderOccurrence(nextOccurrence, true, true);
   return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
+}
+
+function renderDailyFocus(occurrences) {
+  return `
+    <article class="card focus-card">
+      <div class="row between">
+        <h2>${t("dailyFocus")}</h2>
+        <strong>${occurrences.length}/3</strong>
+      </div>
+      ${
+        occurrences.length
+          ? occurrences.map((occurrence) => `
+              <div class="focus-line">
+                <span>${escapeHtml(occurrence.title)}</span>
+                <small>${escapeHtml(occurrence.reminderTime || t("noReminder"))}</small>
+              </div>
+            `).join("")
+          : `<p class="muted">${t("dailyFocusHint")}</p>`
+      }
+    </article>
+  `;
 }
 
 function nextTaskOccurrences(occurrences) {
@@ -632,14 +668,19 @@ function renderProgressCard(title, stats) {
 
 function renderOccurrence(occurrence, showActions = true, draggable = false) {
   const done = occurrence.status === "done";
+  const focused = isFocusedOccurrence(occurrence.id);
   return `
-    <article class="occurrence-card ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${occurrence.id}" data-occurrence-date="${occurrence.date}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
+    <article class="occurrence-card ${focused ? "focused" : ""} ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${occurrence.id}" data-occurrence-date="${occurrence.date}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
       <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
         <span>${done ? "●" : "○"}</span>
         <span>
           <strong>${escapeHtml(occurrence.title)}</strong>
           <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
+          ${occurrence.notes ? `<em>${escapeHtml(occurrence.notes)}</em>` : ""}
         </span>
+      </button>
+      <button class="focus-toggle ${focused ? "active" : ""}" data-focus-occurrence="${occurrence.id}" aria-label="${t("dailyFocus")}">
+        ${focused ? "★" : "☆"}
       </button>
       ${!showActions || done ? "" : renderSnoozeActions(occurrence)}
     </article>
@@ -664,6 +705,7 @@ function renderTask(task) {
       <button class="task-main" data-edit-task="${task.id}">
         <strong>${escapeHtml(task.title)}</strong>
         <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${taskReminderLabel(task)}`)}</small>
+        ${task.notes ? `<em>${escapeHtml(task.notes)}</em>` : ""}
       </button>
       <button class="danger" data-delete-task="${task.id}">${t("delete")}</button>
     </article>
@@ -810,6 +852,9 @@ function bindEvents() {
       toggleOccurrence(button.dataset.occurrence);
     });
   });
+  document.querySelectorAll("[data-focus-occurrence]").forEach((button) => {
+    button.addEventListener("click", () => toggleFocusOccurrence(button.dataset.focusOccurrence));
+  });
   bindOccurrenceDragEvents();
   document.querySelectorAll("[data-snooze-occurrence]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -883,7 +928,7 @@ function bindEvents() {
 function bindOccurrenceDragEvents() {
   document.querySelectorAll("[data-draggable-occurrence]").forEach((card) => {
     card.addEventListener("pointerdown", (event) => {
-      if (event.target.closest(".snooze-row")) return;
+      if (event.target.closest(".snooze-row") || event.target.closest(".focus-toggle")) return;
       const occurrenceId = card.dataset.occurrenceCard;
       dragState = {
         card,
@@ -1196,6 +1241,7 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
       <form class="modal-card" id="task-form">
         <h2>${t("addTask")}</h2>
         <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("taskName")}" />
+        <textarea name="notes" rows="3" placeholder="${t("taskNotes")}">${escapeHtml(task.notes || "")}</textarea>
         <div class="segmented">
           <button type="button" class="${task.type === "recurring" ? "active" : ""}" data-type="recurring">${t("recurring")}</button>
           <button type="button" class="${task.type === "oneTime" ? "active" : ""}" data-type="oneTime">${t("oneTime")}</button>
@@ -1373,6 +1419,7 @@ function saveTaskFromForm(form) {
     daysOfWeek: form.elements.type.value === "recurring" ? form.elements.days.value.split(",").filter(Boolean) : [],
     reminderTime: form.elements.hasReminder.value === "1" ? `${form.elements.hour.value}:${form.elements.minute.value}` : "",
     leadTimeMinutes: form.elements.hasReminder.value === "1" ? parseLeadTime(form.elements.leadTimeMinutes.value) : null,
+    notes: form.elements.notes.value.trim(),
     date: form.elements.type.value === "oneTime" ? form.elements.date.value || todayISO() : "",
     active: true,
     createdAt: existing?.createdAt || new Date().toISOString()
@@ -1742,6 +1789,7 @@ function createOccurrence(task, date) {
     endTime: task.endTime || "",
     reminderTime: task.reminderTime || "",
     leadTimeMinutes: parseLeadTime(task.leadTimeMinutes),
+    notes: task.notes || "",
     status: "pending"
   };
 }
@@ -1754,6 +1802,38 @@ function splitOccurrenceId(id) {
 function toggleOccurrence(id) {
   state.completions[id] = state.completions[id] === "done" ? "pending" : "done";
   if (state.completions[id] === "done") delete state.snoozes[id];
+  saveState();
+  render();
+}
+
+function todayFocusIds(dateISO = todayISO()) {
+  const occurrenceIds = new Set(
+    hydratedOccurrencesForWeek(dateISO)
+      .filter((occurrence) => occurrence.date === dateISO)
+      .map((occurrence) => occurrence.id)
+  );
+  const ids = Array.isArray(state.dailyFocus[dateISO]) ? state.dailyFocus[dateISO] : [];
+  const cleanIds = ids.filter((id) => occurrenceIds.has(id)).slice(0, 3);
+  state.dailyFocus[dateISO] = cleanIds;
+  return cleanIds;
+}
+
+function isFocusedOccurrence(occurrenceId) {
+  const [, date] = splitOccurrenceId(occurrenceId);
+  return todayFocusIds(date).includes(occurrenceId);
+}
+
+function toggleFocusOccurrence(occurrenceId) {
+  const [, date] = splitOccurrenceId(occurrenceId);
+  const current = todayFocusIds(date);
+  if (current.includes(occurrenceId)) {
+    state.dailyFocus[date] = current.filter((id) => id !== occurrenceId);
+  } else if (current.length >= 3) {
+    window.alert(t("dailyFocusLimit"));
+    return;
+  } else {
+    state.dailyFocus[date] = [...current, occurrenceId];
+  }
   saveState();
   render();
 }

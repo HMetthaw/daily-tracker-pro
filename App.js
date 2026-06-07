@@ -45,6 +45,7 @@ const emptyForm = {
   daysOfWeek: [...WEEKDAY_KEYS],
   reminderTime: "",
   leadTimeMinutes: null,
+  notes: "",
   date: todayISO()
 };
 
@@ -99,6 +100,7 @@ export default function App() {
   const [screen, setScreen] = useState("today");
   const [tasks, setTasks] = useState([]);
   const [occurrences, setOccurrences] = useState([]);
+  const [dailyFocusIds, setDailyFocusIds] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const today = todayISO();
@@ -121,8 +123,13 @@ export default function App() {
   async function refresh(nextLanguage = language) {
     const nextTasks = await getTasks();
     const nextOccurrences = await hydratedOccurrencesForWeek(today);
+    const nextDailyFocusIds = parseFocusIds(
+      await getSetting(focusSettingKey(today), "[]"),
+      nextOccurrences.filter((occurrence) => occurrence.date === today)
+    );
     setTasks(nextTasks);
     setOccurrences(nextOccurrences);
+    setDailyFocusIds(nextDailyFocusIds);
     await rescheduleNotifications(nextTasks, nextLanguage);
   }
 
@@ -163,6 +170,7 @@ export default function App() {
       daysOfWeek: task.daysOfWeek?.length ? task.daysOfWeek : [...WEEKDAY_KEYS],
       reminderTime: task.reminderTime || "",
       leadTimeMinutes: task.leadTimeMinutes || null,
+      notes: task.notes || "",
       date: task.date || today
     });
     setFormOpen(true);
@@ -183,6 +191,7 @@ export default function App() {
       id: form.id || `${Date.now()}`,
       reminderTime: form.reminderTime || null,
       leadTimeMinutes: form.reminderTime ? form.leadTimeMinutes : null,
+      notes: form.notes?.trim() || "",
       daysOfWeek: form.type === "recurring" ? form.daysOfWeek : [],
       date: form.type === "oneTime" ? form.date : null,
       active: true
@@ -190,6 +199,24 @@ export default function App() {
     await saveTask(task);
     setFormOpen(false);
     await refresh();
+  }
+
+  async function toggleDailyFocus(occurrence) {
+    const todayIds = new Set(todayOccurrences.map((item) => item.id));
+    const current = dailyFocusIds.filter((id) => todayIds.has(id));
+    const nextFocusIds = current.includes(occurrence.id)
+      ? current.filter((id) => id !== occurrence.id)
+      : current.length >= 3
+        ? current
+        : [...current, occurrence.id];
+
+    if (!current.includes(occurrence.id) && current.length >= 3) {
+      Alert.alert(t(language, "dailyFocus"), t(language, "dailyFocusLimit"));
+      return;
+    }
+
+    setDailyFocusIds(nextFocusIds);
+    await setSetting(focusSettingKey(today), JSON.stringify(nextFocusIds));
   }
 
   async function removeTask(task) {
@@ -213,9 +240,15 @@ export default function App() {
   }
 
   function renderToday() {
+    const focusOccurrences = todayOccurrences.filter((occurrence) => dailyFocusIds.includes(occurrence.id));
     return (
       <ScrollView contentContainerStyle={styles.content}>
         <ProgressCard stats={todayStats} label={t(language, "dailyProgress")} language={language} styles={styles} />
+        <DailyFocusCard
+          occurrences={focusOccurrences}
+          language={language}
+          styles={styles}
+        />
         <TouchableOpacity style={styles.secondaryButton} onPress={() => openNewTask("oneTime")}>
           <Ionicons name="add-circle-outline" size={20} color={theme.secondaryText} />
           <Text style={styles.secondaryButtonText}>{t(language, "addOneTimeToday")}</Text>
@@ -230,7 +263,9 @@ export default function App() {
               language={language}
               theme={theme}
               styles={styles}
+              focused={dailyFocusIds.includes(occurrence.id)}
               onPress={() => toggleOccurrence(occurrence)}
+              onToggleFocus={() => toggleDailyFocus(occurrence)}
             />
           ))
         )}
@@ -294,6 +329,7 @@ export default function App() {
                   {task.type === "oneTime" ? t(language, "oneTime") : t(language, "recurring")}
                   {` - ${taskReminderLabel(task, language)}`}
                 </Text>
+                {task.notes ? <Text style={styles.notePreview}>{task.notes}</Text> : null}
               </View>
               <TouchableOpacity style={styles.iconButton} onPress={() => removeTask(task)}>
                 <Ionicons name="trash-outline" size={19} color={theme.danger} />
@@ -414,20 +450,49 @@ function ProgressCard({ stats, label, language, styles }) {
   );
 }
 
-function OccurrenceRow({ occurrence, language, theme, styles, onPress, compact = false }) {
+function DailyFocusCard({ occurrences, language, styles }) {
+  return (
+    <View style={styles.focusCard}>
+      <View style={styles.focusHeader}>
+        <Text style={styles.sectionTitle}>{t(language, "dailyFocus")}</Text>
+        <Text style={styles.focusCount}>{occurrences.length}/3</Text>
+      </View>
+      {occurrences.length ? (
+        occurrences.map((occurrence) => (
+          <View key={occurrence.id} style={styles.focusItem}>
+            <Text style={styles.focusItemTitle}>{occurrence.title}</Text>
+            <Text style={styles.subtle}>{occurrence.reminderTime || t(language, "noReminder")}</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.subtle}>{t(language, "dailyFocusHint")}</Text>
+      )}
+    </View>
+  );
+}
+
+function OccurrenceRow({ occurrence, language, theme, styles, onPress, onToggleFocus, focused = false, compact = false }) {
   const done = occurrence.status === "done";
   return (
-    <TouchableOpacity style={[styles.occurrenceRow, compact && styles.compactRow]} onPress={onPress}>
-      <Ionicons
-        name={done ? "checkmark-circle" : "ellipse-outline"}
-        size={24}
-        color={done ? theme.primary : theme.muted}
-      />
-      <View style={styles.taskCardText}>
-        <Text style={[styles.taskTitle, done && styles.doneText]}>{occurrence.title}</Text>
-        <Text style={styles.subtle}>{occurrence.reminderTime || t(language, "noReminder")}</Text>
-      </View>
-    </TouchableOpacity>
+    <View style={[styles.occurrenceRow, compact && styles.compactRow, focused && styles.focusedRow]}>
+      <TouchableOpacity style={styles.occurrenceMain} onPress={onPress}>
+        <Ionicons
+          name={done ? "checkmark-circle" : "ellipse-outline"}
+          size={24}
+          color={done ? theme.primary : theme.muted}
+        />
+        <View style={styles.taskCardText}>
+          <Text style={[styles.taskTitle, done && styles.doneText]}>{occurrence.title}</Text>
+          <Text style={styles.subtle}>{occurrence.reminderTime || t(language, "noReminder")}</Text>
+          {occurrence.notes ? <Text style={styles.notePreview}>{occurrence.notes}</Text> : null}
+        </View>
+      </TouchableOpacity>
+      {onToggleFocus ? (
+        <TouchableOpacity style={[styles.focusButton, focused && styles.focusButtonActive]} onPress={onToggleFocus}>
+          <Ionicons name={focused ? "star" : "star-outline"} size={20} color={focused ? theme.primary : theme.muted} />
+        </TouchableOpacity>
+      ) : null}
+    </View>
   );
 }
 
@@ -475,6 +540,20 @@ function taskReminderLabel(task, language) {
 
 function leadTimeLabel(minutes, language) {
   return t(language, "leadTimeMinutes", { minutes });
+}
+
+function focusSettingKey(dateISO) {
+  return `dailyFocus:${dateISO}`;
+}
+
+function parseFocusIds(value, occurrences) {
+  const occurrenceIds = new Set(occurrences.map((occurrence) => occurrence.id));
+  try {
+    const ids = JSON.parse(value);
+    return Array.isArray(ids) ? ids.filter((id) => occurrenceIds.has(id)).slice(0, 3) : [];
+  } catch {
+    return [];
+  }
 }
 
 function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSubmit }) {
@@ -576,6 +655,15 @@ function TaskForm({ form, language, open, setForm, theme, styles, onClose, onSub
               setForm={setForm}
               styles={styles}
               theme={theme}
+            />
+            <TextInput
+              style={[styles.input, styles.notesInput]}
+              value={form.notes}
+              onChangeText={(notes) => setForm({ ...form, notes })}
+              placeholder={t(language, "taskNotes")}
+              placeholderTextColor={theme.muted}
+              multiline
+              textAlignVertical="top"
             />
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
@@ -827,6 +915,34 @@ function createStyles(theme) {
       color: theme.secondaryText,
       fontWeight: "800"
     },
+    focusCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      padding: 14,
+      gap: 8
+    },
+    focusHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between"
+    },
+    focusCount: {
+      color: theme.primary,
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    focusItem: {
+      paddingVertical: 6,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.border
+    },
+    focusItemTitle: {
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: "800"
+    },
     empty: {
       minHeight: 120,
       alignItems: "center",
@@ -842,6 +958,16 @@ function createStyles(theme) {
       flexDirection: "row",
       alignItems: "center",
       gap: 12
+    },
+    occurrenceMain: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12
+    },
+    focusedRow: {
+      borderColor: theme.primary,
+      backgroundColor: theme.primarySoft
     },
     compactRow: {
       paddingVertical: 10,
@@ -871,6 +997,12 @@ function createStyles(theme) {
       color: theme.muted,
       textDecorationLine: "line-through"
     },
+    notePreview: {
+      color: theme.muted,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 4
+    },
     iconButton: {
       width: 40,
       height: 40,
@@ -878,6 +1010,17 @@ function createStyles(theme) {
       justifyContent: "center",
       borderRadius: 20,
       backgroundColor: theme.dangerSoft
+    },
+    focusButton: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 20,
+      backgroundColor: theme.surface
+    },
+    focusButtonActive: {
+      backgroundColor: theme.surface
     },
     dayBlock: {
       backgroundColor: theme.surface,
@@ -942,6 +1085,11 @@ function createStyles(theme) {
     },
     inputDisabled: {
       opacity: 0.45
+    },
+    notesInput: {
+      minHeight: 92,
+      paddingTop: 10,
+      paddingBottom: 10
     },
     segmented: {
       flexDirection: "row",
