@@ -1,20 +1,29 @@
 # Daily Tracker Pro
 
-Simple iPhone-first daily activity tracker built with Expo React Native.
+An iPhone-first daily tracker delivered primarily as an installable PWA.
 
-Daily Tracker Pro is being developed as a real product: a local-first daily tracker with recurring tasks, future one-time tasks, weekly recaps, and lightweight project planning. The current public demo runs as a PWA; the long-term target is a native iOS App Store release.
+Daily Tracker Pro is being developed as a real product: a local-first daily tracker with recurring tasks, future one-time tasks, weekly recaps, and lightweight project planning. The PWA is the main product and runs from GitHub Pages without requiring a computer to stay on. The Expo app is an experimental future path for a possible native App Store release.
 
 ## What it does
 
 - Czech UI by default, English available in Settings.
 - Sunday-to-Saturday weekly blocks.
+- A daily planning flow for choosing and ordering up to three priorities and moving unrealistic tasks to tomorrow.
 - Recurring tasks with selected weekdays and optional reminder time.
 - One-time tasks for the current day.
 - Local notifications for scheduled tasks and a Sunday 9:00 weekly recap.
 - Local-only storage using Expo SQLite. No account, cloud sync, or analytics.
 - Daily streak continues when at least 80% of scheduled tasks are completed.
 
-## Run on iPhone with Expo Go
+## Run the main PWA
+
+```bash
+npm run pwa
+```
+
+Then open `http://localhost:4173`. The deployed GitHub Pages version can be added to the iPhone Home Screen and does not require the development computer to remain on.
+
+## Experimental native app with Expo Go
 
 1. Install dependencies:
 
@@ -54,17 +63,9 @@ Privacy note for release: all task data and settings are stored locally on-devic
 - [Monetization strategy](docs/MONETIZATION.md)
 - [Product decisions](docs/DECISIONS.md)
 
-## PWA demo version
+## Deploy the PWA
 
-The `pwa/` folder contains a standalone installable web version for quick demos without Expo Go.
-
-Run it locally:
-
-```bash
-npm run pwa
-```
-
-Then open `http://localhost:4173`. For an iPhone on the same Wi-Fi, use the computer's local network IP instead of `localhost`.
+The `pwa/` folder contains the main installable web application. For an iPhone on the same Wi-Fi during local development, use the computer's local network IP instead of `localhost`.
 
 Deploy it with GitHub Pages:
 

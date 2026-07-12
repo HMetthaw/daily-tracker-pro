@@ -1,6 +1,6 @@
 import http from "node:http";
-import { createReadStream, existsSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
 
 const root = join(process.cwd(), "pwa");
 const port = Number(process.env.PORT || 4173);
@@ -15,9 +15,15 @@ const types = {
 
 const server = http.createServer((request, response) => {
   const requestPath = decodeURIComponent(new URL(request.url, `http://localhost:${port}`).pathname);
-  const cleanPath = normalize(requestPath).replace(/^(\.\.[/\\])+/, "");
-  const filePath = join(root, cleanPath === "/" ? "index.html" : cleanPath);
-  const target = existsSync(filePath) ? filePath : join(root, "index.html");
+  const relativePath = requestPath.replace(/^[/\\]+/, "") || "index.html";
+  const filePath = resolve(root, relativePath);
+  const staysInsideRoot = filePath === root || filePath.startsWith(`${root}${sep}`);
+  if (!staysInsideRoot) {
+    response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Forbidden");
+    return;
+  }
+  const target = existsSync(filePath) && statSync(filePath).isFile() ? filePath : join(root, "index.html");
   response.writeHead(200, { "Content-Type": types[extname(target)] || "application/octet-stream" });
   createReadStream(target).pipe(response);
 });

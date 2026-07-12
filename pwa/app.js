@@ -1,6 +1,21 @@
+import { createBackup, defaultState, normalizeState, parseBackup } from "./lib/backup.js";
+import { clearOccurrenceState, completeMorningPlan, createMovedTask, dismissOccurrence, markNotToday, moveListItem, setSnooze, shiftedEndTime } from "./lib/actions.js";
+import {
+  STREAK_THRESHOLD,
+  addDays,
+  completionStats,
+  daysBetween,
+  occurrencesForWeek as buildOccurrencesForWeek,
+  parseISODate,
+  todayISO,
+  toISODate,
+  weekDates,
+  weekdayKey,
+  weeklyRecap
+} from "./lib/domain.js";
+
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const STORE_KEY = "daily-tracker-pro:pwa:v1";
-const STREAK_THRESHOLD = 0.8;
 const LEAD_TIME_PRESETS = [5, 10, 15, 30, 60];
 
 const translations = {
@@ -37,6 +52,18 @@ const translations = {
     dailyFocus: "Denní focus",
     dailyFocusHint: "Označ hvězdičkou až 3 hlavní úkoly dne.",
     dailyFocusLimit: "Můžeš označit maximálně 3 úkoly na den.",
+    morningPlan: "Ranní plán",
+    morningPlanIntro: "Vyber až 3 hlavní úkoly, seřaď je a odlož, co dnes není reálné.",
+    morningPlanStart: "Naplánovat den",
+    morningPlanEdit: "Upravit plán",
+    morningPlanPriority: "Priorita {number}",
+    morningPlanPick: "Vybrat",
+    morningPlanDefer: "Přesunout na zítřek",
+    morningPlanDeferred: "Přesune se na zítřek",
+    morningPlanFinish: "Začít den",
+    morningPlanEmpty: "Nejdřív si přidej úkol na dnešek.",
+    moveUp: "Posunout nahoru",
+    moveDown: "Posunout dolů",
     taskNotes: "Poznámka, link, agenda nebo příprava",
     callPrep: "Call prep",
     callPrepPlaceholder: "Call prep checklist - každý bod na nový řádek",
@@ -56,6 +83,9 @@ const translations = {
     notifications: "Notifikace",
     allowNotifications: "Povolit notifikace",
     notificationReady: "Notifikace jsou povolené.",
+    notificationLimit: "Připomínky se kontrolují jen tehdy, když je aplikace otevřená. Po zavření nebo uspání iPhonu nemusí zazvonit.",
+    notificationUnavailable: "Tento prohlížeč notifikace nepodporuje.",
+    mainNavigation: "Hlavní navigace",
     localOnly: "Data jsou uložená jen v tomto zařízení.",
     dataManagement: "Data",
     backupHint: "Stáhni si zálohu nebo obnov data z dříve exportovaného souboru.",
@@ -85,7 +115,7 @@ const translations = {
     taskDate: "Datum úkolu",
     addForDay: "Přidat na den",
     installHint: "Přidat na plochu",
-    pwaLimit: "PWA notifikace jsou demo režim; pro přesné budíky je lepší pozdější iOS build.",
+    pwaLimit: "Notifikace zatím nejsou povolené.",
     taskTime: "Čas na úkol",
     leadTime: "Upozornit předem",
     leadTimeHint: "Vyber minuty před časem úkolu.",
@@ -156,6 +186,18 @@ const translations = {
     dailyFocus: "Daily focus",
     dailyFocusHint: "Star up to 3 main tasks for the day.",
     dailyFocusLimit: "You can focus at most 3 tasks per day.",
+    morningPlan: "Morning plan",
+    morningPlanIntro: "Pick up to 3 main tasks, order them, and defer what is not realistic today.",
+    morningPlanStart: "Plan the day",
+    morningPlanEdit: "Edit plan",
+    morningPlanPriority: "Priority {number}",
+    morningPlanPick: "Select",
+    morningPlanDefer: "Move to tomorrow",
+    morningPlanDeferred: "Will move to tomorrow",
+    morningPlanFinish: "Start the day",
+    morningPlanEmpty: "Add a task for today first.",
+    moveUp: "Move up",
+    moveDown: "Move down",
     taskNotes: "Note, link, agenda, or prep",
     callPrep: "Call prep",
     callPrepPlaceholder: "Call prep checklist - one item per line",
@@ -175,6 +217,9 @@ const translations = {
     notifications: "Notifications",
     allowNotifications: "Allow notifications",
     notificationReady: "Notifications are allowed.",
+    notificationLimit: "Reminders are checked only while the app is open. They may not alert after the iPhone closes or suspends the app.",
+    notificationUnavailable: "This browser does not support notifications.",
+    mainNavigation: "Main navigation",
     localOnly: "Data is stored only on this device.",
     dataManagement: "Data",
     backupHint: "Download a backup or restore data from an earlier export file.",
@@ -204,7 +249,7 @@ const translations = {
     taskDate: "Task date",
     addForDay: "Add for day",
     installHint: "Add to Home Screen",
-    pwaLimit: "PWA notifications are demo mode; a later iOS build is better for exact alarms.",
+    pwaLimit: "Notifications are not allowed yet.",
     taskTime: "Task time",
     leadTime: "Alert before",
     leadTimeHint: "Choose minutes before the task time.",
@@ -250,6 +295,8 @@ let editingTaskId = null;
 let notifiedKeys = new Set();
 let dragState = null;
 let suppressOccurrenceClickId = null;
+let morningPlanPromptedDate = null;
+let idCounter = 0;
 
 const app = document.querySelector("#app");
 
@@ -281,71 +328,19 @@ function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
 }
 
-function defaultState() {
-  return {
-    projects: [],
-    tasks: [],
-    completions: {},
-    snoozes: {},
-    skips: {},
-    nextTaskSkips: {},
-    dailyFocus: {},
-    callPrepDone: {},
-    timeOverrides: {},
-    settings: { language: "cs", theme: "light", notifications: "default", todayMode: "next" }
-  };
-}
-
-function normalizeState(value) {
-  const fallback = defaultState();
-  const source = value && typeof value === "object" ? value : {};
-  const settings = source.settings && typeof source.settings === "object" && !Array.isArray(source.settings) ? source.settings : {};
-  return {
-    projects: Array.isArray(source.projects) ? source.projects : fallback.projects,
-    tasks: Array.isArray(source.tasks) ? source.tasks : fallback.tasks,
-    completions:
-      source.completions && typeof source.completions === "object" && !Array.isArray(source.completions)
-        ? source.completions
-        : fallback.completions,
-    snoozes:
-      source.snoozes && typeof source.snoozes === "object" && !Array.isArray(source.snoozes)
-        ? source.snoozes
-        : fallback.snoozes,
-    skips:
-      source.skips && typeof source.skips === "object" && !Array.isArray(source.skips)
-        ? source.skips
-        : fallback.skips,
-    nextTaskSkips:
-      source.nextTaskSkips && typeof source.nextTaskSkips === "object" && !Array.isArray(source.nextTaskSkips)
-        ? source.nextTaskSkips
-        : fallback.nextTaskSkips,
-    dailyFocus:
-      source.dailyFocus && typeof source.dailyFocus === "object" && !Array.isArray(source.dailyFocus)
-        ? source.dailyFocus
-        : fallback.dailyFocus,
-    callPrepDone:
-      source.callPrepDone && typeof source.callPrepDone === "object" && !Array.isArray(source.callPrepDone)
-        ? source.callPrepDone
-        : fallback.callPrepDone,
-    timeOverrides:
-      source.timeOverrides && typeof source.timeOverrides === "object" && !Array.isArray(source.timeOverrides)
-        ? source.timeOverrides
-        : fallback.timeOverrides,
-    settings: { ...fallback.settings, ...settings }
-  };
-}
-
 function render() {
   document.documentElement.dataset.theme = state.settings.theme;
+  document.documentElement.lang = state.settings.language;
   app.innerHTML = `
     <main class="app-shell">
       ${renderHeader()}
-      <section class="screen">${renderScreen()}</section>
+      <section class="screen" id="main-content" tabindex="-1">${renderScreen()}</section>
       ${renderTabs()}
     </main>
     <div id="modal-root"></div>
   `;
   bindEvents();
+  queueMicrotask(maybeOpenMorningPlan);
 }
 
 function renderHeader() {
@@ -383,7 +378,7 @@ function renderToday() {
   const focusOccurrences = todayFocusIds(today).map((id) => occurrences.find((occurrence) => occurrence.id === id)).filter(Boolean);
   return `
     ${renderProgressCard(t("dailyProgress"), stats)}
-    ${renderDailyFocus(focusOccurrences)}
+    ${renderDailyFocus(focusOccurrences, Boolean(state.morningPlans[today]))}
     ${renderYesterdayReset(leftovers)}
     <article class="card today-mode-card">
       <div class="segmented">
@@ -401,7 +396,7 @@ function renderNextTask(nextOccurrence, total) {
   return renderEmpty(total ? t("nextTaskEmpty") : t("todayEmpty"));
 }
 
-function renderDailyFocus(occurrences) {
+function renderDailyFocus(occurrences, planCompleted) {
   return `
     <article class="card focus-card">
       <div class="row between">
@@ -418,6 +413,10 @@ function renderDailyFocus(occurrences) {
             `).join("")
           : `<p class="muted">${t("dailyFocusHint")}</p>`
       }
+      <button type="button" class="morning-plan-launch" data-action="morning-plan">
+        <span aria-hidden="true">☀</span>
+        ${t(planCompleted ? "morningPlanEdit" : "morningPlanStart")}
+      </button>
     </article>
   `;
 }
@@ -455,8 +454,8 @@ function renderLeftover(occurrence) {
         <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
       </span>
       <span class="reset-actions">
-        <button class="secondary" data-dismiss-leftover-occurrence="${occurrence.id}">${t("dismiss")}</button>
-        <button class="secondary" data-carry-over-occurrence="${occurrence.id}">${t("addToday")}</button>
+        <button class="secondary" data-dismiss-leftover-occurrence="${escapeAttr(occurrence.id)}">${t("dismiss")}</button>
+        <button class="secondary" data-carry-over-occurrence="${escapeAttr(occurrence.id)}">${t("addToday")}</button>
       </span>
     </div>
   `;
@@ -596,7 +595,11 @@ function recapWindowDates() {
 }
 
 function renderSettings() {
-  const notificationText = "Notification" in window && Notification.permission === "granted" ? t("notificationReady") : t("pwaLimit");
+  const notificationText = !("Notification" in window)
+    ? t("notificationUnavailable")
+    : Notification.permission === "granted"
+      ? t("notificationReady")
+      : t("pwaLimit");
   return `
     <article class="card">
       <h2>${t("language")}</h2>
@@ -615,7 +618,8 @@ function renderSettings() {
     <article class="card">
       <h2>${t("notifications")}</h2>
       <p class="muted">${notificationText}</p>
-      <button class="secondary full" data-action="notifications">${t("allowNotifications")}</button>
+      <p class="notice">${t("notificationLimit")}</p>
+      ${"Notification" in window ? `<button class="secondary full" data-action="notifications">${t("allowNotifications")}</button>` : ""}
     </article>
     <article class="card">
       <h2>${t("dataManagement")}</h2>
@@ -650,12 +654,12 @@ function renderTabs() {
     ["settings", "⚙", "settings"]
   ];
   return `
-    <nav class="tabs">
+    <nav class="tabs" aria-label="${escapeAttr(t("mainNavigation"))}">
       ${tabs
         .map(
           ([screen, icon, label]) => `
-            <button class="${currentScreen === screen ? "active" : ""}" data-screen="${screen}">
-              <span>${icon}</span>
+            <button type="button" class="${currentScreen === screen ? "active" : ""}" data-screen="${screen}" aria-current="${currentScreen === screen ? "page" : "false"}" aria-label="${escapeAttr(t(label))}">
+              <span aria-hidden="true">${icon}</span>
               ${t(label)}
             </button>
           `
@@ -682,8 +686,8 @@ function renderOccurrence(occurrence, showActions = true, draggable = false) {
   const focused = isFocusedOccurrence(occurrence.id);
   const showCallPrep = occurrence.date === todayISO() && occurrence.callPrepItems?.length;
   return `
-    <article class="occurrence-card ${focused ? "focused" : ""} ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${occurrence.id}" data-occurrence-date="${occurrence.date}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
-      <button class="occurrence ${done ? "done" : ""}" data-occurrence="${occurrence.id}">
+    <article class="occurrence-card ${focused ? "focused" : ""} ${draggable && !done ? "draggable-occurrence" : ""}" data-occurrence-card="${escapeAttr(occurrence.id)}" data-occurrence-date="${escapeAttr(occurrence.date)}" ${draggable && !done ? "data-draggable-occurrence=\"true\"" : ""}>
+      <button class="occurrence ${done ? "done" : ""}" data-occurrence="${escapeAttr(occurrence.id)}">
         <span>${done ? "●" : "○"}</span>
         <span>
           <strong>${escapeHtml(occurrence.title)}</strong>
@@ -691,7 +695,7 @@ function renderOccurrence(occurrence, showActions = true, draggable = false) {
           ${occurrence.notes ? `<em>${escapeHtml(occurrence.notes)}</em>` : ""}
         </span>
       </button>
-      <button class="focus-toggle ${focused ? "active" : ""}" data-focus-occurrence="${occurrence.id}" aria-label="${t("dailyFocus")}">
+      <button class="focus-toggle ${focused ? "active" : ""}" data-focus-occurrence="${escapeAttr(occurrence.id)}" aria-label="${escapeAttr(t("dailyFocus"))}" aria-pressed="${focused}">
         ${focused ? "★" : "☆"}
       </button>
       ${showCallPrep ? renderCallPrepChecklist(occurrence) : ""}
@@ -708,7 +712,7 @@ function renderCallPrepChecklist(occurrence) {
       ${occurrence.callPrepItems.map((item, index) => {
         const checked = doneIndexes.includes(index);
         return `
-          <button type="button" class="${checked ? "done" : ""}" data-call-prep-occurrence="${occurrence.id}" data-call-prep-index="${index}">
+          <button type="button" class="${checked ? "done" : ""}" data-call-prep-occurrence="${escapeAttr(occurrence.id)}" data-call-prep-index="${index}" aria-pressed="${checked}">
             <span>${checked ? "☑" : "☐"}</span>
             ${escapeHtml(item)}
           </button>
@@ -721,10 +725,10 @@ function renderCallPrepChecklist(occurrence) {
 function renderSnoozeActions(occurrence) {
   return `
     <div class="snooze-row" aria-label="${t("snooze")}">
-      <button class="secondary" data-not-today-occurrence="${occurrence.id}">${t("notToday")}</button>
-      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="15">${t("snooze15")}</button>
-      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="30">${t("snooze30")}</button>
-      <button class="secondary" data-snooze-occurrence="${occurrence.id}" data-snooze-minutes="60">${t("snooze60")}</button>
+      <button class="secondary" data-not-today-occurrence="${escapeAttr(occurrence.id)}">${t("notToday")}</button>
+      <button class="secondary" data-snooze-occurrence="${escapeAttr(occurrence.id)}" data-snooze-minutes="15">${t("snooze15")}</button>
+      <button class="secondary" data-snooze-occurrence="${escapeAttr(occurrence.id)}" data-snooze-minutes="30">${t("snooze30")}</button>
+      <button class="secondary" data-snooze-occurrence="${escapeAttr(occurrence.id)}" data-snooze-minutes="60">${t("snooze60")}</button>
     </div>
   `;
 }
@@ -733,13 +737,13 @@ function renderTask(task) {
   const detail = task.type === "oneTime" ? t("oneTime") : t("recurring");
   return `
     <article class="task-card">
-      <button class="task-main" data-edit-task="${task.id}">
+      <button class="task-main" data-edit-task="${escapeAttr(task.id)}">
         <strong>${escapeHtml(task.title)}</strong>
         <small>${escapeHtml(task.projectId ? projectTaskMeta(task) : `${detail} - ${taskReminderLabel(task)}`)}</small>
         ${task.notes ? `<em>${escapeHtml(task.notes)}</em>` : ""}
         ${task.callPrepItems?.length ? `<em>${escapeHtml(t("callPrepCount", { count: task.callPrepItems.length }))}</em>` : ""}
       </button>
-      <button class="danger" data-delete-task="${task.id}">${t("delete")}</button>
+      <button class="danger" data-delete-task="${escapeAttr(task.id)}">${t("delete")}</button>
     </article>
   `;
 }
@@ -870,10 +874,11 @@ function renderMeter(percent) {
 
 function bindEvents() {
   document.querySelectorAll("[data-screen]").forEach((button) => {
-    button.addEventListener("click", () => {
-      currentScreen = button.dataset.screen;
-      render();
-    });
+      button.addEventListener("click", () => {
+        currentScreen = button.dataset.screen;
+        render();
+        document.querySelector("#main-content")?.focus();
+      });
   });
   document.querySelectorAll("[data-occurrence]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -907,6 +912,7 @@ function bindEvents() {
   });
   document.querySelector("[data-action='new-recurring']")?.addEventListener("click", () => openTaskModal("recurring"));
   document.querySelector("[data-action='new-onetime']")?.addEventListener("click", () => openTaskModal("oneTime"));
+  document.querySelector("[data-action='morning-plan']")?.addEventListener("click", openMorningPlanModal);
   document.querySelectorAll("[data-add-onetime-date]").forEach((button) => {
     button.addEventListener("click", () => openTaskModal("oneTime", null, button.dataset.addOnetimeDate));
   });
@@ -1054,14 +1060,142 @@ function distanceBetween(startX, startY, endX, endY) {
   return Math.hypot(endX - startX, endY - startY);
 }
 
+function maybeOpenMorningPlan() {
+  const date = todayISO();
+  if (currentScreen !== "today" || state.morningPlans[date] || morningPlanPromptedDate === date) return;
+  if (document.querySelector("#modal-root")?.children.length) return;
+  const pending = hydratedOccurrencesForWeek(date).filter(
+    (occurrence) => occurrence.date === date && occurrence.status !== "done" && !state.nextTaskSkips[occurrence.id]
+  );
+  if (!pending.length) return;
+  morningPlanPromptedDate = date;
+  openMorningPlanModal();
+}
+
+function openMorningPlanModal() {
+  const date = todayISO();
+  const occurrences = hydratedOccurrencesForWeek(date).filter(
+    (occurrence) => occurrence.date === date && occurrence.status !== "done" && !state.nextTaskSkips[occurrence.id]
+  );
+  if (!occurrences.length) {
+    window.alert(t("morningPlanEmpty"));
+    return;
+  }
+
+  const validIds = new Set(occurrences.map((occurrence) => occurrence.id));
+  let selectedIds = todayFocusIds(date).filter((id) => validIds.has(id));
+  let deferredIds = new Set();
+  const modalRoot = document.querySelector("#modal-root");
+
+  function renderMorningPlanItem(occurrence) {
+    const priorityIndex = selectedIds.indexOf(occurrence.id);
+    const selected = priorityIndex >= 0;
+    const deferred = deferredIds.has(occurrence.id);
+    return `
+      <article class="morning-plan-item ${selected ? "selected" : ""} ${deferred ? "deferred" : ""}">
+        <div class="morning-plan-item-main">
+          <span class="priority-number" aria-hidden="true">${selected ? priorityIndex + 1 : "·"}</span>
+          <div>
+            <strong>${escapeHtml(occurrence.title)}</strong>
+            <small>${escapeHtml(occurrenceMeta(occurrence))}</small>
+          </div>
+        </div>
+        <div class="morning-plan-item-actions">
+          <button type="button" class="plan-pick ${selected ? "active" : ""}" data-morning-select="${escapeAttr(occurrence.id)}" aria-pressed="${selected}">
+            ${selected ? t("morningPlanPriority", { number: priorityIndex + 1 }) : t("morningPlanPick")}
+          </button>
+          ${selected ? `
+            <button type="button" class="plan-arrow" data-morning-move="${escapeAttr(occurrence.id)}" data-direction="up" aria-label="${escapeAttr(t("moveUp"))}" ${priorityIndex === 0 ? "disabled" : ""}>↑</button>
+            <button type="button" class="plan-arrow" data-morning-move="${escapeAttr(occurrence.id)}" data-direction="down" aria-label="${escapeAttr(t("moveDown"))}" ${priorityIndex === selectedIds.length - 1 ? "disabled" : ""}>↓</button>
+          ` : ""}
+          <button type="button" class="plan-defer ${deferred ? "active" : ""}" data-morning-defer="${escapeAttr(occurrence.id)}" aria-pressed="${deferred}">
+            ${t(deferred ? "morningPlanDeferred" : "morningPlanDefer")}
+          </button>
+        </div>
+      </article>
+    `;
+  }
+
+  function drawMorningPlan() {
+    modalRoot.innerHTML = `
+      <div class="modal-backdrop morning-plan-backdrop" role="dialog" aria-modal="true" aria-labelledby="morning-plan-title">
+        <form class="modal-card morning-plan-modal" id="morning-plan-form">
+          <div class="morning-plan-heading">
+            <span class="morning-sun" aria-hidden="true">☀</span>
+            <div>
+              <p>${formatShortDate(date)}</p>
+              <h2 id="morning-plan-title" tabindex="-1">${t("morningPlan")}</h2>
+            </div>
+          </div>
+          <p class="muted">${t("morningPlanIntro")}</p>
+          <div class="morning-plan-list">${occurrences.map(renderMorningPlanItem).join("")}</div>
+          <div class="morning-plan-summary" aria-live="polite">
+            <strong>${selectedIds.length}/3</strong>
+            <span>${t("dailyFocus")}</span>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary" data-close>${t("cancel")}</button>
+            <button type="submit" class="primary">${t("morningPlanFinish")}</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    modalRoot.querySelector("[data-close]").addEventListener("click", closeModal);
+    modalRoot.querySelectorAll("[data-morning-select]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.morningSelect;
+        if (selectedIds.includes(id)) selectedIds = selectedIds.filter((item) => item !== id);
+        else if (selectedIds.length >= 3) {
+          window.alert(t("dailyFocusLimit"));
+          return;
+        } else {
+          deferredIds.delete(id);
+          selectedIds = [...selectedIds, id];
+        }
+        drawMorningPlan();
+      });
+    });
+    modalRoot.querySelectorAll("[data-morning-defer]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.morningDefer;
+        if (deferredIds.has(id)) deferredIds.delete(id);
+        else deferredIds.add(id);
+        selectedIds = selectedIds.filter((item) => item !== id);
+        drawMorningPlan();
+      });
+    });
+    modalRoot.querySelectorAll("[data-morning-move]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedIds = moveListItem(selectedIds, button.dataset.morningMove, button.dataset.direction);
+        drawMorningPlan();
+      });
+    });
+    modalRoot.querySelector("#morning-plan-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      for (const occurrenceId of deferredIds) {
+        const occurrence = occurrences.find((item) => item.id === occurrenceId);
+        if (occurrence) saveOccurrenceSchedule(occurrenceId, addDays(date, 1), occurrence.startTime || occurrence.reminderTime || "");
+      }
+      completeMorningPlan(state, date, selectedIds);
+      saveState();
+      closeModal();
+      render();
+    });
+  }
+
+  drawMorningPlan();
+  modalRoot.querySelector("#morning-plan-title")?.focus();
+}
+
 function openProjectModal() {
   const today = todayISO();
   document.querySelector("#modal-root").innerHTML = `
     <div class="modal-backdrop">
       <form class="modal-card" id="project-form">
         <h2>${t("addProject")}</h2>
-        <input name="name" autocomplete="off" placeholder="${t("projectName")}" />
-        <input name="address" autocomplete="off" placeholder="${t("projectAddress")}" />
+        <input name="name" autocomplete="off" aria-label="${escapeAttr(t("projectName"))}" placeholder="${t("projectName")}" />
+        <input name="address" autocomplete="off" aria-label="${escapeAttr(t("projectAddress"))}" placeholder="${t("projectAddress")}" />
         <div class="time-range">
           <label>
             <span>${t("projectStart")}</span>
@@ -1088,7 +1222,7 @@ function openProjectModal() {
     const name = form.elements.name.value.trim();
     if (!name) return;
     state.projects.push({
-      id: String(Date.now()),
+      id: createId(),
       name,
       address: form.elements.address.value.trim(),
       startDate: form.elements.startDate.value || today,
@@ -1130,18 +1264,18 @@ function openPlanStepModal(date = todayISO(), taskId = null) {
     <div class="modal-backdrop">
       <form class="modal-card" id="plan-step-form">
         <h2>${t("projectStep")}</h2>
-        <select name="projectId" class="select-input">
+        <select name="projectId" class="select-input" aria-label="${escapeAttr(t("selectProject"))}">
           ${state.projects
             .map(
               (project) => `
-                <option value="${project.id}" ${project.id === task.projectId ? "selected" : ""}>
+                <option value="${escapeAttr(project.id)}" ${project.id === task.projectId ? "selected" : ""}>
                   ${escapeHtml(project.name)} (${projectDateRange(project)})
                 </option>
               `
             )
             .join("")}
         </select>
-        <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("stepName")}" />
+        <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" aria-label="${escapeAttr(t("stepName"))}" placeholder="${t("stepName")}" />
         <div class="segmented">
           <button type="button" class="${taskType === "oneTime" ? "active" : ""}" data-plan-type="oneTime">${t("oneTime")}</button>
           <button type="button" class="${taskType === "recurring" ? "active" : ""}" data-plan-type="recurring">${t("recurring")}</button>
@@ -1232,7 +1366,7 @@ function savePlanStepFromForm(form, taskId = null) {
   const type = form.elements.type.value;
   const recurrence = type === "recurring" ? form.elements.recurrence.value : "";
   const task = {
-    id: existing?.id || String(Date.now()),
+    id: existing?.id || createId(),
     title,
     type,
     recurrence,
@@ -1272,12 +1406,12 @@ function openTaskModal(type = "recurring", taskId = null, defaultDate = todayISO
   const [initialHour, initialMinute] = task.reminderTime ? task.reminderTime.split(":") : ["08", "00"];
 
   document.querySelector("#modal-root").innerHTML = `
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true">
       <form class="modal-card" id="task-form">
         <h2>${t("addTask")}</h2>
-        <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" placeholder="${t("taskName")}" />
-        <textarea name="notes" rows="3" placeholder="${t("taskNotes")}">${escapeHtml(task.notes || "")}</textarea>
-        <textarea name="callPrepText" rows="4" placeholder="${t("callPrepPlaceholder")}">${escapeHtml((task.callPrepItems || []).join("\n"))}</textarea>
+        <input name="title" autocomplete="off" value="${escapeAttr(task.title)}" aria-label="${escapeAttr(t("taskName"))}" placeholder="${t("taskName")}" />
+        <textarea name="notes" rows="3" aria-label="${escapeAttr(t("taskNotes"))}" placeholder="${t("taskNotes")}">${escapeHtml(task.notes || "")}</textarea>
+        <textarea name="callPrepText" rows="4" aria-label="${escapeAttr(t("callPrepPlaceholder"))}" placeholder="${t("callPrepPlaceholder")}">${escapeHtml((task.callPrepItems || []).join("\n"))}</textarea>
         <div class="segmented">
           <button type="button" class="${task.type === "recurring" ? "active" : ""}" data-type="recurring">${t("recurring")}</button>
           <button type="button" class="${task.type === "oneTime" ? "active" : ""}" data-type="oneTime">${t("oneTime")}</button>
@@ -1408,7 +1542,7 @@ function renderLeadTimeControls(task) {
           `
         ).join("")}
       </div>
-      <input name="customLeadTime" inputmode="numeric" value="${customValue}" placeholder="${t("leadTimeCustom")}" ${disabled ? "disabled" : ""} />
+      <input name="customLeadTime" inputmode="numeric" value="${customValue}" aria-label="${escapeAttr(t("leadTimeCustom"))}" placeholder="${t("leadTimeCustom")}" ${disabled ? "disabled" : ""} />
     </section>
   `;
 }
@@ -1449,7 +1583,7 @@ function saveTaskFromForm(form) {
   if (!title) return;
   const existing = state.tasks.find((item) => item.id === editingTaskId);
   const task = {
-    id: existing?.id || String(Date.now()),
+    id: existing?.id || createId(),
     title,
     type: form.elements.type.value,
     daysOfWeek: form.elements.type.value === "recurring" ? form.elements.days.value.split(",").filter(Boolean) : [],
@@ -1494,7 +1628,7 @@ function openRescheduleModal(occurrenceId, targetDate = null) {
   if (!occurrence) return;
   const defaultDate = targetDate || occurrence.date;
   document.querySelector("#modal-root").innerHTML = `
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true">
       <form class="modal-card" id="reschedule-form">
         <h2>${t("moveTask")}</h2>
         <p class="muted">${escapeHtml(occurrence.title)}</p>
@@ -1530,7 +1664,7 @@ function openCarryOverModal(occurrenceId) {
   const occurrence = findOccurrence(occurrenceId);
   if (!occurrence) return;
   document.querySelector("#modal-root").innerHTML = `
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true">
       <form class="modal-card" id="carry-over-form">
         <h2>${t("addToday")}</h2>
         <p class="muted">${escapeHtml(occurrence.title)}</p>
@@ -1590,10 +1724,7 @@ function saveOccurrenceSchedule(occurrenceId, newDate, newTime) {
   if (!task) return;
   const endTime = shiftedEndTime(occurrence.startTime || occurrence.reminderTime, occurrence.endTime, newTime);
 
-  delete state.completions[occurrenceId];
-  delete state.snoozes[occurrenceId];
-  delete state.nextTaskSkips[occurrenceId];
-  delete state.timeOverrides[occurrenceId];
+  clearOccurrenceState(state, occurrenceId);
 
   if (task.type === "oneTime") {
     task.date = newDate;
@@ -1602,21 +1733,14 @@ function saveOccurrenceSchedule(occurrenceId, newDate, newTime) {
     task.reminderTime = newTime;
   } else {
     state.skips[occurrenceId] = true;
-    state.tasks.push({
-      id: String(Date.now()),
-      title: occurrence.title,
-      type: "oneTime",
-      projectId: occurrence.projectId || "",
-      daysOfWeek: [],
+    state.tasks.push(createMovedTask({
+      occurrence,
+      sourceTask: task,
       date: newDate,
-      startTime: occurrence.startTime || occurrence.endTime ? newTime : "",
-      endTime,
-      reminderTime: newTime,
-      active: true,
-      sourceTaskId: task.id,
-      sourceOccurrenceId: occurrenceId,
+      time: newTime,
+      id: createId(),
       createdAt: new Date().toISOString()
-    });
+    }));
   }
   saveState();
 }
@@ -1627,9 +1751,7 @@ function carryOverOccurrence(occurrenceId, newTime) {
   const task = state.tasks.find((item) => item.id === occurrence.taskId);
   if (!task) return;
   const endTime = shiftedEndTime(occurrence.startTime || occurrence.reminderTime, occurrence.endTime, newTime);
-  delete state.completions[occurrenceId];
-  delete state.snoozes[occurrenceId];
-  delete state.timeOverrides[occurrenceId];
+  clearOccurrenceState(state, occurrenceId);
   if (task.type === "oneTime") {
     task.date = todayISO();
     task.startTime = task.startTime || occurrence.startTime || occurrence.endTime ? newTime : "";
@@ -1637,30 +1759,20 @@ function carryOverOccurrence(occurrenceId, newTime) {
     task.reminderTime = newTime;
   } else {
     state.skips[occurrenceId] = true;
-    state.tasks.push({
-      id: String(Date.now()),
-      title: occurrence.title,
-      type: "oneTime",
-      projectId: occurrence.projectId || "",
-      daysOfWeek: [],
+    state.tasks.push(createMovedTask({
+      occurrence,
+      sourceTask: task,
       date: todayISO(),
-      startTime: occurrence.startTime || occurrence.endTime ? newTime : "",
-      endTime,
-      reminderTime: newTime,
-      active: true,
-      sourceTaskId: task.id,
-      sourceOccurrenceId: occurrenceId,
+      time: newTime,
+      id: createId(),
       createdAt: new Date().toISOString()
-    });
+    }));
   }
   saveState();
 }
 
 function dismissLeftover(occurrenceId) {
-  delete state.completions[occurrenceId];
-  delete state.snoozes[occurrenceId];
-  delete state.timeOverrides[occurrenceId];
-  state.skips[occurrenceId] = true;
+  dismissOccurrence(state, occurrenceId);
   saveState();
   render();
 }
@@ -1675,12 +1787,7 @@ function requestNotifications() {
 }
 
 function exportData() {
-  const backup = {
-    app: "daily-tracker-pro",
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    state: normalizeState(state)
-  };
+  const backup = createBackup(state);
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1693,6 +1800,10 @@ function exportData() {
 }
 
 function importData(file) {
+  if (!file || file.size > 5_000_000) {
+    window.alert(t("importInvalid"));
+    return;
+  }
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     try {
@@ -1708,23 +1819,6 @@ function importData(file) {
     }
   });
   reader.readAsText(file);
-}
-
-function parseBackup(text) {
-  const payload = JSON.parse(text);
-  const importedState = payload?.app === "daily-tracker-pro" && payload.state ? payload.state : payload;
-  if (
-    !importedState ||
-    typeof importedState !== "object" ||
-    !Array.isArray(importedState.tasks) ||
-    !Array.isArray(importedState.projects) ||
-    !importedState.completions ||
-    typeof importedState.completions !== "object" ||
-    Array.isArray(importedState.completions)
-  ) {
-    throw new Error("Invalid backup");
-  }
-  return normalizeState(importedState);
 }
 
 function startReminderLoop() {
@@ -1796,48 +1890,7 @@ function findOccurrence(occurrenceId) {
 }
 
 function occurrencesForWeek(tasks, dateISO) {
-  const dates = weekDates(dateISO);
-  const occurrences = [];
-  for (const task of tasks) {
-    const project = task.projectId ? state.projects.find((item) => item.id === task.projectId) : null;
-    if (task.type === "oneTime") {
-      if (dates.includes(task.date) && (!project || isDateWithinProject(task.date, project))) occurrences.push(createOccurrence(task, task.date));
-      continue;
-    }
-    if (task.recurrence === "everyOtherDay") {
-      const anchorDate = task.date || project?.startDate || dates[0];
-      for (const date of dates) {
-        if (date >= anchorDate && daysBetween(anchorDate, date) % 2 === 0 && (!project || isDateWithinProject(date, project))) {
-          occurrences.push(createOccurrence(task, date));
-        }
-      }
-      continue;
-    }
-    for (const date of dates) {
-      if ((task.daysOfWeek || []).includes(weekdayKey(date)) && (!project || isDateWithinProject(date, project))) {
-        occurrences.push(createOccurrence(task, date));
-      }
-    }
-  }
-  return occurrences.sort((a, b) => a.date.localeCompare(b.date) || (a.reminderTime || "99:99").localeCompare(b.reminderTime || "99:99"));
-}
-
-function createOccurrence(task, date) {
-  return {
-    id: `${task.id}:${date}`,
-    taskId: task.id,
-    title: task.title,
-    type: task.type,
-    projectId: task.projectId || "",
-    date,
-    startTime: task.startTime || "",
-    endTime: task.endTime || "",
-    reminderTime: task.reminderTime || "",
-    leadTimeMinutes: parseLeadTime(task.leadTimeMinutes),
-    notes: task.notes || "",
-    callPrepItems: Array.isArray(task.callPrepItems) ? task.callPrepItems : [],
-    status: "pending"
-  };
+  return buildOccurrencesForWeek(tasks, dateISO, state.projects);
 }
 
 function splitOccurrenceId(id) {
@@ -1900,25 +1953,16 @@ function toggleCallPrepItem(occurrenceId, index) {
 }
 
 function notTodayOccurrence(id) {
-  delete state.completions[id];
-  delete state.snoozes[id];
-  state.nextTaskSkips[id] = true;
+  markNotToday(state, id);
   saveState();
   render();
 }
 
 function snoozeOccurrence(id, minutes) {
-  const snoozeAt = addMinutes(new Date(), minutes);
-  state.snoozes[id] = `${toISODate(snoozeAt)}T${timeString(snoozeAt)}`;
-  notifiedKeys.delete(`${id}:snooze:${timeString(snoozeAt)}`);
+  const snoozeTime = setSnooze(state, id, minutes);
+  notifiedKeys.delete(`${id}:snooze:${snoozeTime}`);
   saveState();
   render();
-}
-
-function completionStats(occurrences) {
-  const total = occurrences.length;
-  const completed = occurrences.filter((item) => item.status === "done").length;
-  return { completed, total, percent: total ? completed / total : 0 };
 }
 
 function calculateStreak() {
@@ -1933,92 +1977,8 @@ function calculateStreak() {
   return streak;
 }
 
-function weeklyRecap(occurrences, dates = []) {
-  const stats = completionStats(occurrences);
-  const taskScores = Object.values(groupBy(occurrences, "taskId"))
-    .map((items) => {
-      const itemStats = completionStats(items);
-      return { title: items[0]?.title || "", ...itemStats };
-    })
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.percent - a.percent || b.total - a.total);
-  const dayScores = Object.entries(groupBy(occurrences, "date"))
-    .map(([date, items]) => ({ date, ...completionStats(items) }))
-    .filter((item) => item.total > 0)
-    .sort((a, b) => b.percent - a.percent || b.completed - a.completed);
-  const chartDates = dates.length ? dates : Object.keys(groupBy(occurrences, "date")).sort();
-  const chartDays = chartDates.map((date) => ({
-    date,
-    ...completionStats(occurrences.filter((item) => item.date === date))
-  }));
-  return {
-    ...stats,
-    days: chartDays,
-    bestTasks: taskScores.filter((item) => item.percent >= STREAK_THRESHOLD).slice(0, 3),
-    worstTasks: [...taskScores].sort((a, b) => a.percent - b.percent || b.total - a.total).slice(0, 3),
-    bestDay: dayScores[0] || null,
-    worstDay: dayScores.length ? dayScores[dayScores.length - 1] : null,
-    recommendation: recommendationKey(stats, taskScores)
-  };
-}
-
-function recommendationKey(stats, taskScores) {
-  if (!stats.total) return "noTasks";
-  if (stats.percent >= 0.9) return "excellent";
-  if (taskScores.some((item) => item.percent < STREAK_THRESHOLD)) return "focusWeakTask";
-  return "steady";
-}
-
-function groupBy(items, key) {
-  return items.reduce((groups, item) => {
-    groups[item[key]] = groups[item[key]] || [];
-    groups[item[key]].push(item);
-    return groups;
-  }, {});
-}
-
-function todayISO() {
-  return toISODate(new Date());
-}
-
-function toISODate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function timeString(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-function shiftedEndTime(oldStart, oldEnd, newStart) {
-  if (!oldStart || !oldEnd) return oldEnd || "";
-  const duration = minutesFromTime(oldEnd) - minutesFromTime(oldStart);
-  if (duration <= 0) return oldEnd;
-  return timeFromMinutes(minutesFromTime(newStart) + duration);
-}
-
-function minutesFromTime(value) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function timeFromMinutes(value) {
-  const minutesInDay = 24 * 60;
-  const normalized = ((value % minutesInDay) + minutesInDay) % minutesInDay;
-  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
-}
-
-function parseISODate(value) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function addMinutes(date, amount) {
-  const next = new Date(date);
-  next.setMinutes(next.getMinutes() + amount);
-  return next;
 }
 
 function leadNotificationDateTime(occurrence) {
@@ -2037,17 +1997,6 @@ function snoozeLabel(value) {
   if (!date || !time) return "";
   const label = date === todayISO() ? time : `${formatShortDate(date)} ${time}`;
   return t("snoozedUntil", { time: label });
-}
-
-function addDays(dateISO, amount) {
-  const date = parseISODate(dateISO);
-  date.setDate(date.getDate() + amount);
-  return toISODate(date);
-}
-
-function daysBetween(startISO, endISO) {
-  const millisecondsPerDay = 24 * 60 * 60 * 1000;
-  return Math.round((parseISODate(endISO) - parseISODate(startISO)) / millisecondsPerDay);
 }
 
 function startOfMonthISO(dateISO) {
@@ -2081,20 +2030,6 @@ function monthGridDates(dateISO) {
   });
 }
 
-function weekDates(dateISO) {
-  const start = parseISODate(dateISO);
-  start.setDate(start.getDate() - start.getDay());
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    return toISODate(date);
-  });
-}
-
-function weekdayKey(dateISO) {
-  return WEEKDAYS[parseISODate(dateISO).getDay()];
-}
-
 function dayLabelKeys(day) {
   return {
     sun: "sunday",
@@ -2118,4 +2053,10 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll("\n", " ");
+}
+
+function createId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  idCounter += 1;
+  return `${Date.now()}-${idCounter}`;
 }
